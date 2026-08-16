@@ -25,10 +25,16 @@ def test_freshness_uses_common_market_date_not_each_stock_latest_date():
     assert set(eligibility["Symbol"]) == {"FRESH", "ONE_DAY_OLD", "THREE_DAYS_OLD"}
 
 
-def test_align_only_fills_trailing_gap_to_common_as_of():
+def test_alignment_never_fills_trailing_gap():
     prices = make_prices()
     aligned = align_trailing_to_as_of(prices, ["ONE_DAY_OLD"], prices.index[-1])
-    assert aligned.iloc[-1]["ONE_DAY_OLD"] == aligned.iloc[-2]["ONE_DAY_OLD"]
-    prices.loc[prices.index[-2], "ONE_DAY_OLD"] = np.nan
-    aligned = align_trailing_to_as_of(prices, ["ONE_DAY_OLD"], prices.index[-1])
+    assert pd.isna(aligned.iloc[-1]["ONE_DAY_OLD"])
     assert pd.isna(aligned.iloc[-2]["ONE_DAY_OLD"])
+
+
+def test_alignment_preserves_interior_missing_data():
+    prices = make_prices()
+    prices.loc[prices.index[-2], "FRESH"] = np.nan
+    aligned = align_trailing_to_as_of(prices, ["FRESH"], prices.index[-1])
+    assert pd.isna(aligned.iloc[-2]["FRESH"])
+    assert aligned.iloc[-1]["FRESH"] == prices.iloc[-1]["FRESH"]
