@@ -2,7 +2,7 @@
 
 A clean, performance-first rebuild of the Umiya NSE quantitative screener.
 
-> **Current status: Phase 0–8 complete.**
+> **Current status: Phase 0–8 complete; Phase 9 production acceptance in progress.**
 
 The old `Pareshking/Umiya` repository is **reference-only and must never be modified**. It is used for quantitative methodology, validated formulas, research requirements and product behaviour—not as an architectural template.
 
@@ -113,14 +113,17 @@ Never commit these values.
 | 6 | Production measurement, correctness and performance | ✅ Complete |
 | 7 | Production operational hardening | ✅ Complete |
 | 8 | Production Screener evolution / edge-case audit | ✅ Complete |
+| 9 | Production release & acceptance | 🔄 In progress |
 
 ## Phase 8 closure
 
 Phase 8 completed the evidence-backed production Screener audit without redesigning the architecture or changing quantitative methodology. It fixed frontend race/error-state issues, strengthened query contracts and edge-case handling, added R2 pointer validation, added repeated-refresh and constituent-replacement regression coverage, measured production payloads/latency, and synchronized release documentation.
 
-Latest production smoke evidence includes five query samples at p50 120 ms / p95 247 ms, representative payload measurements, and explicit HTTP 400 checks for invalid filter/sort contracts.
+The latest pre-Phase-9 production run confirmed the functional API and frontend contracts. The only smoke failure was a Render cold-start readiness timeout; the service subsequently returned healthy responses and query latency fell to p50 43 ms / p95 44 ms. Phase 9 hardens the smoke assertion so that this transient wake-up condition is retried rather than reported as a false release failure.
 
-The only remaining observation outside repository automation is an independent human visual walkthrough on a real desktop/mobile browser/device; this is deliberately not represented as completed automated evidence.
+## Phase 9 release checkpoint
+
+Phase 9 is the final production acceptance pass before new product development. It is intentionally limited to live contract validation, cold-start-safe smoke testing, CI/security gates, evidence capture and documentation synchronization. It introduces no architecture or quantitative-methodology changes.
 
 ## Working rules
 
@@ -150,4 +153,5 @@ The only remaining observation outside repository automation is an independent h
 - `docs/PHASE7_STATUS.md` — Phase 7 acceptance record
 - `docs/PHASE8_AUDIT.md` — Phase 8 findings and fixes
 - `docs/PHASE8_PLAN.md` — Phase 8 closure plan
+- `docs/PHASE9_RELEASE.md` — Phase 9 production release checkpoint
 - `docs/HANDOVER_PROMPT.md` — continuation prompt for future AI sessions
