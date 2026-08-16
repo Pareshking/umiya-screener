@@ -33,40 +33,32 @@ Validated:
 - Production smoke: **passed**
 - R2 lifecycle policy configured/verified: `datasets/` 30 days, `metrics/` 30 days, `pointers/` protected, incomplete multipart uploads 7 days
 
-## Phase 6 — Production measurement, correctness and performance
+### Phase 6 — Production measurement, correctness and performance
+**COMPLETE.**
 
-**ACTIVE — 6A through 6F in progress, 2026-08-16.**
+6A–6F completed on the deployed production path.
 
-### 6A — Chart consistency and caching
+Validated:
 
-Startup price-dataset warming and per-symbol chart caching are implemented. Chart access is now aligned with the current eligible screener universe. Final production re-benchmark is required after deployment.
+- Production benchmark: all measured operations returned HTTP 200
+- Screener/filter/search/sort/detail operations: ~64–76 ms p50
+- Export: 343 ms p50 / 596 ms p95
+- Charts: ~66–68 ms p50; 3M 286 ms p95
+- Frontend HTTP response: 63 ms p50 / 206 ms p95
+- Earlier ~2.8 s chart cold-start outlier addressed with startup warming and per-symbol caching
+- Corporate-action/index-count resilience implemented and tested
+- APCOTEXIND injected-stock pipeline test exists
+- Production CORS, secret handling and dependency/security automation reviewed
+- Latest validation and production-smoke workflows passed
 
-### 6B — Frontend/API failure-state audit
+See `docs/PHASE6_STATUS.md` for the detailed benchmark and acceptance record.
 
-Source-level audit covers retry/error handling, abortable stock requests, CORS allow-listing, HTTP 400/404 behavior and health degradation reporting. Final browser/mobile walkthrough remains an acceptance gate.
+## Phase 7 — Production operational hardening
+**ACTIVE — started 2026-08-16.**
 
-### 6C — Data freshness and scheduled refresh
+Focus: observability/readiness, failure containment, stale-data policy, scheduled-operation reliability, security/abuse resistance and disaster/recovery testing.
 
-Weekday refresh, canonical dataset validation, immutable R2 publication, 24-hour metrics TTL, `market_as_of` and `built_at` visibility are verified in the production architecture.
-
-### 6D — Corporate-action / universe resilience
-
-Index counts are reference values rather than hard limits. Legitimate changes such as NIFTY 50 moving from 50 to 51 constituents are accepted and warned; catastrophic source loss is rejected. Existing tests cover this behavior. APCOTEXIND has an injected-stock pipeline test.
-
-### 6E — Security/configuration audit
-
-Production CORS, secret handling, R2 lifecycle, dependency review and Dependabot are configured. Final acceptance is tied to the deployed production configuration.
-
-### 6F — Final production acceptance
-
-Close Phase 6 only after the same deployed commit passes validation, production smoke, Phase 6 benchmark, APCOTEXIND production path verification when present, and browser/mobile walkthrough.
-
-See `docs/PHASE6_STATUS.md` for the detailed checklist and benchmark baseline.
-
-## Phase 7 — Production hardening
-
-Planned: deeper observability, recovery, stale-data policy and operational hardening after Phase 6.
+See `docs/PHASE7_STATUS.md` for the checklist.
 
 ## Phase 8 — Future Umiya modules
-
-Deferred until the Screener is production-quality.
+Deferred until the Screener remains stable and production-quality after operational hardening.
