@@ -1,5 +1,3 @@
-import json
-
 import numpy as np
 import pandas as pd
 
@@ -13,8 +11,12 @@ def synthetic_phase1(days=320, symbols=("AAA", "BBB", "CCC")):
     volume = pd.DataFrame(100_000.0, index=index, columns=symbols)
     eligibility = pd.DataFrame({
         "Symbol": list(symbols),
+        "History Days": [days] * len(symbols),
         "Last Price Date": [index[-1]] * len(symbols),
         "Data Age Days": [0] * len(symbols),
+        "Volume Days": [days] * len(symbols),
+        "Last Volume Date": [index[-1]] * len(symbols),
+        "Volume Age Days": [0] * len(symbols),
     })
     universe = pd.DataFrame({
         "Symbol": list(symbols),
@@ -22,7 +24,7 @@ def synthetic_phase1(days=320, symbols=("AAA", "BBB", "CCC")):
         "Industry": ["A", "A", "B"],
         "Index": ["NIFTY 50"] * len(symbols),
     })
-    metadata = {"market_as_of": str(index[-1].date()), "schema_version": "1.1"}
+    metadata = {"market_as_of": str(index[-1].date()), "schema_version": "1.1", "built_at_utc": "2026-08-16T00:00:00+00:00"}
     return close, volume, eligibility, universe, metadata
 
 
@@ -36,7 +38,7 @@ def test_build_metric_frame_composes_complete_screener_contract(monkeypatch):
         "1M Return", "3M Return", "6M Return", "9M Return", "12M Return",
         "3M Sharpe", "6M Sharpe", "R² 1Y", "Industry Relative", "Acceleration",
         "EMA 50", "EMA 100", "EMA 200", "52W High", "Volume Ratio",
-        "Persistence 6M %", "Data Age Days", "Market As Of",
+        "Persistence 6M %", "Data Age Days", "Last Volume Date", "Volume Age Days", "Market As Of",
     }
     assert required.issubset(frame.columns)
     assert frame["Rank"].notna().all()
