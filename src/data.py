@@ -21,6 +21,7 @@ from .config import (
     NSE_REQUEST_RETRIES,
     NSE_REQUEST_TIMEOUT,
     UNIVERSE_MIN_RATIO,
+    YAHOO_MIN_COVERAGE_RATIO,
 )
 
 PRICE_FIELDS = ("adj_close", "volume")
@@ -51,12 +52,7 @@ def _download_nse_csv(url: str) -> bytes:
 
 
 def _validate_index_count(index_name: str, actual: int) -> str | None:
-    """Validate an NSE source count without requiring the nominal count to stay fixed.
-
-    Returns a warning for legitimate count changes and raises for a source that
-    is implausibly incomplete. This lets constituent/security counts move with
-    NSE while protecting the pipeline from truncated or malformed downloads.
-    """
+    """Validate an NSE source count without requiring the nominal count to stay fixed."""
     expected = EXPECTED_INDEX_COUNTS[index_name]
     minimum = max(1, ceil(expected * INDEX_COUNT_MIN_RATIO))
     if actual < minimum:
@@ -138,7 +134,11 @@ def _ten_year_window() -> tuple[str, str]:
 
 
 def fetch_prices(symbols: Sequence[str], start: str | None = None, end: str | None = None) -> dict[str, pd.DataFrame]:
-    """Download the canonical V2 dataset: 10 years of Adjusted Close and Volume."""
+    """Download the canonical V2 dataset: 10 years of Adjusted Close and Volume.
+
+    A broad Yahoo coverage failure is fatal. Silently turning many requested
+    symbols into all-NaN columns would otherwise publish an incomplete dataset.
+    """
     tickers = [s if s.endswith(".NS") else f"{s}.NS" for s in symbols]
     if not tickers:
         return {field: pd.DataFrame() for field in PRICE_FIELDS}
@@ -157,15 +157,26 @@ def fetch_prices(symbols: Sequence[str], start: str | None = None, end: str | No
         return {field: pd.DataFrame() for field in PRICE_FIELDS}
     if not isinstance(raw.columns, pd.MultiIndex):
         raise ValueError("Expected yfinance MultiIndex output for the NSE-750 download")
+
+    requested = [str(s).replace(".NS", "").upper() for s in symbols]
     result: dict[str, pd.DataFrame] = {}
     for source_field, output_field in (("Adj Close", "adj_close"), ("Volume", "volume")):
         if source_field not in raw.columns.get_level_values(0):
             raise ValueError(f"Yahoo response is missing required field: {source_field}")
         frame = raw[source_field].copy()
         frame.columns = [str(c).replace(".NS", "").upper() for c in frame.columns]
-        frame = frame.reindex(columns=[str(s).replace(".NS", "").upper() for s in symbols])
         frame.index = pd.to_datetime(frame.index).tz_localize(None)
-        result[output_field] = frame.sort_index()
+        frame = frame.sort_index()
+        available = [symbol for symbol in requested if symbol in frame.columns and frame[symbol].notna().any()]
+        coverage = len(available) / len(requested)
+        if coverage < YAHOO_MIN_COVERAGE_RATIO:
+            missing = [symbol for symbol in requested if symbol not in available]
+            sample = ", ".join(missing[:20])
+            raise RuntimeError(
+                f"Yahoo {source_field} coverage is only {coverage:.1%}; "
+                f"minimum is {YAHOO_MIN_COVERAGE_RATIO:.1%}. Missing sample: {sample}"
+            )
+        result[output_field] = frame.reindex(columns=requested)
     return result
 
 
@@ -182,28 +193,44 @@ def latest_market_date(adj_close: pd.DataFrame) -> pd.Timestamp:
     return pd.Timestamp(adj_close.index[valid_dates][-1]).normalize()
 
 
-def eligible_symbols(adj_close: pd.DataFrame, as_of: pd.Timestamp | None = None) -> pd.DataFrame:
-    """Find stocks with >=126 observations and latest data <=3 calendar days stale."""
+def eligible_symbols(
+    adj_close: pd.DataFrame,
+    volume: pd.DataFrame | None = None,
+    as_of: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Find stocks with sufficient price/volume history and fresh observations."""
+    columns = ["Symbol", "History Days", "Last Price Date", "Data Age Days", "Volume Days", "Last Volume Date", "Volume Age Days"]
     if adj_close.empty:
-        return pd.DataFrame(columns=["Symbol", "History Days", "Last Price Date", "Data Age Days"])
+        return pd.DataFrame(columns=columns)
+    if volume is None:
+        volume = pd.DataFrame(index=adj_close.index, columns=adj_close.columns)
+    volume = volume.reindex(index=adj_close.index, columns=adj_close.columns)
     as_of = pd.Timestamp(as_of or latest_market_date(adj_close)).normalize()
     records = []
     for symbol in adj_close.columns:
-        series = adj_close[symbol].dropna()
-        if len(series) < MIN_HISTORY:
+        price_series = adj_close[symbol].dropna()
+        volume_series = volume[symbol].dropna()
+        if len(price_series) < MIN_HISTORY or len(volume_series) < MIN_HISTORY:
             continue
-        last_date = pd.Timestamp(series.index[-1]).normalize()
-        age_days = int((as_of - last_date).days)
-        if age_days <= MAX_DATA_AGE_DAYS:
-            records.append({"Symbol": symbol, "History Days": int(len(series)), "Last Price Date": last_date, "Data Age Days": age_days})
-    return pd.DataFrame(records)
+        last_price_date = pd.Timestamp(price_series.index[-1]).normalize()
+        last_volume_date = pd.Timestamp(volume_series.index[-1]).normalize()
+        price_age = int((as_of - last_price_date).days)
+        volume_age = int((as_of - last_volume_date).days)
+        if price_age <= MAX_DATA_AGE_DAYS and volume_age <= MAX_DATA_AGE_DAYS:
+            records.append(
+                {
+                    "Symbol": symbol,
+                    "History Days": int(len(price_series)),
+                    "Last Price Date": last_price_date,
+                    "Data Age Days": price_age,
+                    "Volume Days": int(len(volume_series)),
+                    "Last Volume Date": last_volume_date,
+                    "Volume Age Days": volume_age,
+                }
+            )
+    return pd.DataFrame(records, columns=columns)
 
 
 def align_trailing_to_as_of(frame: pd.DataFrame, symbols: Sequence[str], as_of: pd.Timestamp) -> pd.DataFrame:
-    """Reindex to the common universe without imputing missing prices or volume.
-
-    The function name is retained temporarily for compatibility with the
-    unfinished Phase 3 service. V2 does not forward-fill trailing observations.
-    Freshness is validated separately by ``eligible_symbols``.
-    """
+    """Reindex to the common universe without imputing missing prices or volume."""
     return frame.reindex(columns=list(symbols)).copy()
