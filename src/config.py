@@ -19,6 +19,10 @@ MIN_HISTORY = 126
 # market date, so they do not create fake observations).
 MAX_DATA_AGE_DAYS = 3
 
+# A Yahoo response that silently loses a large part of the requested universe
+# is treated as a failed build rather than publishing a deceptively small set.
+YAHOO_MIN_COVERAGE_RATIO = 0.90
+
 INDEX_URLS = {
     "NIFTY 50": "https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv",
     "NIFTY NEXT 50": "https://www.niftyindices.com/IndexConstituent/ind_niftynext50list.csv",
