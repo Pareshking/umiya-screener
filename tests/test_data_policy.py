@@ -50,11 +50,8 @@ def test_partial_missing_stock_does_not_delete_market_dates():
     assert pd.isna(close.loc[dates[20], "B"])
 
 
-def test_trailing_alignment_does_not_fill_interior_gaps():
+def test_alignment_never_imputes_missing_values():
     dates = pd.bdate_range("2026-01-01", periods=5)
     frame = pd.DataFrame({"A": [1.0, pd.NA, 3.0, pd.NA, pd.NA]}, index=dates)
     aligned = align_trailing_to_as_of(frame, ["A"], dates[-1])
-    assert pd.isna(aligned.loc[dates[1], "A"])
-    assert not pd.isna(aligned.loc[dates[3], "A"])
-    assert aligned.loc[dates[3], "A"] == 3.0
-    assert aligned.loc[dates[4], "A"] == 3.0
+    pd.testing.assert_frame_equal(aligned, frame)
