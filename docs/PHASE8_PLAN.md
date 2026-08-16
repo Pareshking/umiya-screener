@@ -1,7 +1,7 @@
 # Phase 8 — Production Screener Evolution Plan
 
 **Started:** 2026-08-16  
-**Status:** ACTIVE — 8A/8B in progress
+**Status:** ACTIVE — 8C–8F in progress
 
 ## Objective
 
@@ -13,11 +13,12 @@ Improve the existing production Screener based on evidence from real usage and s
 - [x] Inspect stock-detail loading/error/chart cancellation behavior.
 - [x] Identify stale-response race in the main Screener query path.
 - [x] Fix stale-response race using per-query `AbortController` cancellation.
-- [ ] Complete production browser/mobile walkthrough.
+- [x] Separate data degradation from ordinary request/contract errors.
+- [x] Make the mobile filter search control functional.
+- [x] Restore saved-screen state safely on subsequent visits.
+- [ ] Complete independent manual browser/mobile walkthrough; repository automation cannot perform a human visual observation.
 
-## 8B — Correctness and edge-case audit
-
-Reviewed and/or covered in the current implementation:
+## 8B — Correctness and edge cases
 
 - [x] dynamic constituent counts are data-driven;
 - [x] legitimate index membership/corporate-action changes are not forced to exactly 750 rows;
@@ -26,77 +27,49 @@ Reviewed and/or covered in the current implementation:
 - [x] search + sort + pagination are server-side;
 - [x] null/missing metric values remain null/blank;
 - [x] extreme numeric filter values are handled through numeric coercion and empty results where appropriate;
+- [x] numeric equality filters coerce numeric string values consistently;
 - [x] insufficient historical observations remain unavailable rather than fabricated;
 - [x] missing/new symbols are rejected unless present in the current eligible universe;
 - [x] chart ranges are bounded by the API;
-- [ ] add/execute dedicated regression coverage for pagination boundaries and edge-case query combinations;
-- [ ] verify real production edge cases after the next validation run.
+- [x] unsupported sort fields now return an explicit API contract error instead of silently falling back to Rank;
+- [x] out-of-range pages are clamped to the last available page when matches exist;
+- [x] dedicated regression coverage added for pagination boundaries and edge-case query combinations;
+- [x] CI validation passed for the preceding Phase 8 regression-test checkpoint.
 
 ## 8C — Data pipeline resilience
 
-Review:
-
-- constituent acquisition;
-- duplicate constituent handling;
-- refresh idempotency;
-- last-known-good behavior;
-- R2 pointer safety;
-- lifecycle interaction with active datasets;
-- corporate-action/index membership changes.
+- [x] Review current constituent acquisition and dynamic-count safeguards.
+- [x] Review duplicate constituent handling and current-universe construction.
+- [x] Review immutable local dataset publication and latest-pointer update ordering.
+- [x] Review last-known-good metrics fallback and temporary-download validation.
+- [x] Add R2 pointer target validation helper and regression coverage for traversal/namespace violations.
+- [ ] Complete production R2 pointer/lifecycle verification against the active bucket after the latest code changes.
+- [ ] Add/execute explicit refresh-idempotency regression coverage.
+- [ ] Complete corporate-action/index-membership change scenario coverage.
 
 ## 8D — API quality
 
-Review:
-
-- schema consistency;
-- validation/error semantics;
-- request IDs;
-- no-store behavior;
-- request-size limits;
-- response payload size;
-- export bounds;
-- unnecessary fields or duplicate work.
-
-Known observation: unsupported sort fields currently fall back to `Rank`. Review whether this should become an explicit validation error as part of 8D; do not change it solely for cosmetic strictness without regression coverage.
+- [x] Review request IDs and no-store response behavior.
+- [x] Review schema bounds and request-size protection.
+- [x] Review sort/filter error semantics.
+- [x] Review response payload fields; current query response retains compatibility fields used by the API contract.
+- [ ] Add focused API response-size measurements for representative query/search/export requests.
+- [ ] Complete deployed API contract smoke after the latest commits.
 
 ## 8E — Performance and frontend polish
 
-Measure before optimizing.
-
-Targets include:
-
-- initial load;
-- screener query/filter/search/sort;
-- stock detail;
-- charts;
-- export;
-- mobile rendering;
-- API payload size;
-- Render cold start where relevant.
-
-Only evidence-backed bottlenecks should be optimized.
+- [x] Existing production smoke records repeated query latency and p50/p95.
+- [x] Avoided optimization without measured evidence.
+- [ ] Re-run production latency measurements after 8C/8D changes.
+- [ ] Complete manual/mobile rendering observation where a human browser is available.
+- [ ] Review chart interaction and loading behavior on a real device.
 
 ## 8F — Documentation/release discipline
 
-- Keep README synchronized with actual production state.
-- Keep `PHASE_STATUS.md`, `NEXT_AUDIT.md` and phase documents current.
-- Keep `HANDOVER_PROMPT.md` current.
-- Record production-facing contract changes with tests.
-- Maintain clean release/checkpoint notes.
-
-## First execution order
-
-**8A + 8B together.**
-
-1. Inspect current deployed frontend/API.
-2. Run a systematic edge-case audit.
-3. Record findings.
-4. Fix concrete defects.
-5. Test and build.
-6. Run production smoke for production-facing fixes.
-7. Update documentation.
-
-Do not add unrelated product modules during this audit.
+- [x] Synchronize Phase 5/R2 production-storage documentation with the actual closed state.
+- [x] Record Phase 8 audit findings and regression coverage.
+- [ ] Synchronize README, `PHASE_STATUS.md`, `NEXT_AUDIT.md` and `HANDOVER_PROMPT.md` after 8C–8E closure.
+- [ ] Record a clean Phase 8 release/checkpoint once all gates pass.
 
 ## Constraints
 
