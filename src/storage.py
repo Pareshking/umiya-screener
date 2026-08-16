@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,22 +29,13 @@ class ObjectStoreConfig:
         return cls(**values)
 
 
-def upload_directory(store: ObjectStoreConfig, local_dir: Path, prefix: str) -> list[str]:
-    """Upload an immutable local dataset directory to S3/R2.
-
-    Existing keys are intentionally not overwritten. Publication of the active
-    dataset is a separate pointer operation after all objects are uploaded and
-    verified.
-    """
+def _client(store: ObjectStoreConfig):
     import boto3
+    return boto3.client("s3", endpoint_url=store.endpoint_url, aws_access_key_id=store.access_key_id, aws_secret_access_key=store.secret_access_key, region_name=store.region)
 
-    client = boto3.client(
-        "s3",
-        endpoint_url=store.endpoint_url,
-        aws_access_key_id=store.access_key_id,
-        aws_secret_access_key=store.secret_access_key,
-        region_name=store.region,
-    )
+
+def upload_directory(store: ObjectStoreConfig, local_dir: Path, prefix: str) -> list[str]:
+    client = _client(store)
     uploaded: list[str] = []
     for path in sorted(local_dir.rglob("*")):
         if not path.is_file():
@@ -55,14 +47,31 @@ def upload_directory(store: ObjectStoreConfig, local_dir: Path, prefix: str) -> 
 
 
 def publish_pointer(store: ObjectStoreConfig, pointer_key: str, target: str) -> None:
-    """Publish the small active-version pointer only after candidate validation."""
-    import boto3
+    _client(store).put_object(Bucket=store.bucket, Key=pointer_key, Body=target.encode("utf-8"), ContentType="application/json")
 
-    client = boto3.client(
-        "s3",
-        endpoint_url=store.endpoint_url,
-        aws_access_key_id=store.access_key_id,
-        aws_secret_access_key=store.secret_access_key,
-        region_name=store.region,
-    )
-    client.put_object(Bucket=store.bucket, Key=pointer_key, Body=target.encode("utf-8"), ContentType="application/json")
+
+def read_pointer(store: ObjectStoreConfig, pointer_key: str) -> str:
+    body = _client(store).get_object(Bucket=store.bucket, Key=pointer_key)["Body"].read()
+    prefix = json.loads(body.decode("utf-8")).get("prefix")
+    if not isinstance(prefix, str) or not prefix.strip():
+        raise RuntimeError(f"Invalid object-store pointer: {pointer_key}")
+    return prefix
+
+
+def download_prefix(store: ObjectStoreConfig, prefix: str, destination: Path) -> int:
+    client = _client(store)
+    destination.mkdir(parents=True, exist_ok=True)
+    count = 0
+    paginator = client.get_paginator("list_objects_v2")
+    root = prefix.rstrip("/") + "/"
+    for page in paginator.paginate(Bucket=store.bucket, Prefix=root):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            relative = key[len(root):]
+            if not relative:
+                continue
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(client.get_object(Bucket=store.bucket, Key=key)["Body"].read())
+            count += 1
+    return count
