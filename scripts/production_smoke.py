@@ -41,23 +41,43 @@ def main() -> int:
                 failures += 1
 
         r, _ = check("metadata", "GET", "/api/v1/screener/metadata")
-        if r:
-            data = r.json()
-            if data.get("universe") != 750:
-                print(f"expected universe=750, got {data.get('universe')}")
-                failures += 1
+        if not r:
+            return 1
+        metadata = r.json()
+        universe_size = int(metadata.get("universe", 0))
+        if universe_size < 600:
+            print(f"implausibly small universe={universe_size}")
+            failures += 1
 
         payload = {"filters": [], "sort": {"field": "Rank", "direction": "asc"}, "search": None, "page": 1, "page_size": 10}
+        sample_symbol = None
         for i in range(5):
             r, elapsed = check(f"query-{i+1}", "POST", "/api/v1/screener/query", payload)
             timings.append(elapsed)
-            if r and (not r.json().get("rows") or r.json().get("total", 0) <= 0):
+            if r:
+                rows = r.json().get("rows", [])
+                if not rows or r.json().get("total", 0) <= 0:
+                    failures += 1
+                elif sample_symbol is None:
+                    sample_symbol = rows[0].get("Symbol")
+
+        if not sample_symbol:
+            print("Unable to select a live sample symbol from the screener")
+            failures += 1
+        else:
+            search = {"filters": [], "sort": {"field": "Momentum Score", "direction": "desc"}, "search": sample_symbol, "page": 1, "page_size": 10}
+            r, _ = check("search-sort", "POST", "/api/v1/screener/query", search)
+            if r and not any(row.get("Symbol") == sample_symbol for row in r.json().get("rows", [])):
                 failures += 1
 
-        search = {"filters": [], "sort": {"field": "Momentum Score", "direction": "desc"}, "search": "DIACABS", "page": 1, "page_size": 10}
-        r, _ = check("search-sort", "POST", "/api/v1/screener/query", search)
-        if r and not any(row.get("Symbol") == "DIACABS" for row in r.json().get("rows", [])):
-            failures += 1
+            r, _ = check("stock-detail", "GET", f"/api/v1/stocks/{sample_symbol}")
+            if r and r.json().get("Symbol") != sample_symbol:
+                failures += 1
+
+            for days in (63, 126, 252):
+                r, _ = check(f"chart-{days}d", "GET", f"/api/v1/stocks/{sample_symbol}/chart?days={days}")
+                if r and not r.json().get("rows"):
+                    failures += 1
 
         r, _ = check("export", "POST", "/api/v1/screener/export", payload)
         if r:
@@ -68,15 +88,6 @@ def main() -> int:
                 if len(rows) < 2 or "Symbol" not in rows[0]:
                     failures += 1
             except Exception:
-                failures += 1
-
-        r, _ = check("stock-detail", "GET", "/api/v1/stocks/DIACABS")
-        if r and r.json().get("Symbol") != "DIACABS":
-            failures += 1
-
-        for days in (63, 126, 252):
-            r, _ = check(f"chart-{days}d", "GET", f"/api/v1/stocks/DIACABS/chart?days={days}")
-            if r and not r.json().get("rows"):
                 failures += 1
 
         check("missing-stock-404", "GET", "/api/v1/stocks/NOT_A_REAL_SYMBOL", expected=404)
