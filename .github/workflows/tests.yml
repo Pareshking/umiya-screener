@@ -19,7 +19,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: pytest -q
-      - name: Test full Yahoo history — Adj Close + Volume
+      - name: Test 10-year Yahoo history — Adj Close + Volume
         if: always()
         env:
           PYTHONPATH: ${{ github.workspace }}
@@ -29,15 +29,15 @@ jobs:
           import json
           import pandas as pd
           import yfinance as yf
-          from src.data import load_universe
+          from src.data import HISTORY_PERIOD, load_universe
 
-          out = Path("data_cache/yahoo_full_history_test")
+          out = Path("data_cache/yahoo_10y_history_test")
           out.mkdir(parents=True, exist_ok=True)
           universe = load_universe()
           symbols = universe["Symbol"].dropna().astype(str).str.upper().drop_duplicates().tolist()
           tickers = [f"{s}.NS" for s in symbols]
           print(f"Universe symbols: {len(symbols)}")
-          raw = yf.download(tickers, period="max", auto_adjust=False, actions=False, progress=True, group_by="column", threads=True)
+          raw = yf.download(tickers, period=HISTORY_PERIOD, auto_adjust=False, actions=False, progress=True, group_by="column", threads=True)
           if raw.empty:
               raise RuntimeError("Yahoo returned an empty dataset")
           if not isinstance(raw.columns, pd.MultiIndex):
@@ -68,6 +68,7 @@ jobs:
           adj.to_parquet(out / "adj_close.parquet")
           vol.to_parquet(out / "volume.parquet")
           summary = {
+              "history_period": HISTORY_PERIOD,
               "universe_symbols": len(symbols),
               "yahoo_columns": len(adj.columns),
               "date_rows": len(adj.index),
@@ -87,8 +88,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yahoo-full-history-test
-          path: data_cache/yahoo_full_history_test/
+          name: yahoo-10y-history-test
+          path: data_cache/yahoo_10y_history_test/
 
   frontend:
     runs-on: ubuntu-latest
