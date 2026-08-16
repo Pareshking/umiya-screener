@@ -1,7 +1,7 @@
 # Phase 7 — Production Operational Hardening
 
 **Started:** 2026-08-16  
-**Status:** IMPLEMENTED — deployment and production acceptance pending
+**Status:** ACCEPTANCE — implementation and automated production gates passed; manual browser walkthrough remains
 
 ## Objective
 
@@ -15,6 +15,7 @@ Harden the already-production Screener for operational reliability without chang
 - [x] Stable `X-Request-ID` response header is generated or propagated.
 - [x] API responses are explicitly `Cache-Control: no-store`.
 - [x] Health reports the 24-hour metrics freshness policy.
+- [x] Production smoke verifies liveness/readiness on the deployed API.
 
 ## 7B — Recovery and failure containment
 
@@ -29,7 +30,7 @@ Harden the already-production Screener for operational reliability without chang
 
 - [x] Maximum metrics age is explicitly 24 hours.
 - [x] Stale metrics return a safe 503/degraded state rather than being presented as current.
-- [x] Frontend now explicitly displays `DEGRADED` and provides retry behavior.
+- [x] Frontend explicitly displays `DEGRADED` and provides retry behavior.
 - [x] Dataset `built_at` and `market_as_of` remain visible when healthy.
 
 ## 7D — Scheduled operations
@@ -38,7 +39,7 @@ Harden the already-production Screener for operational reliability without chang
 - [x] Refresh uses immutable R2 publication followed by pointer advancement.
 - [x] Post-publication production smoke checks `/live`, `/ready` and screener metadata.
 - [x] GitHub workflow failure remains visible through normal Actions failure notifications.
-- [x] R2 lifecycle policy is already configured: datasets/metrics 30 days, pointers protected, incomplete multipart uploads 7 days.
+- [x] R2 lifecycle policy is configured: datasets/metrics 30 days, pointers protected, incomplete multipart uploads 7 days.
 
 ## 7E — Security and abuse resistance
 
@@ -60,14 +61,17 @@ Automated coverage added for:
 - [x] request-size rejection
 - [x] explicit degraded frontend state
 
-Production acceptance still required after merge/deployment:
+## Production acceptance record
 
-1. CI green on the final commit.
-2. Production API `/live` returns 200.
-3. Production API `/ready` returns 200 with fresh data.
-4. Existing production smoke and Phase 6 benchmark remain green.
-5. Browser/mobile walkthrough confirms READY/DEGRADED transitions and retry behavior.
-6. A real scheduled refresh completes successfully without changing the active pointer until validated publication is complete.
+- [x] Phase 7 PR merged to `main` as commit `667c4c1950a5af2c850a42d3a308a642fc58e190`.
+- [x] Final validation workflow passed on the merged commit.
+- [x] Final CodeQL security workflow passed on the merged commit.
+- [x] Production smoke passed on the merged commit, including liveness, readiness, health, metadata, query/search/sort, stock detail, charts, export, CORS and frontend HTTP availability.
+- [x] Vercel deployment status reported successful for the Phase 7 merged deployment.
+- [ ] Manual browser/mobile walkthrough of READY/DEGRADED UI states.
+- [ ] Observe one future scheduled refresh completing successfully without an invalid pointer advance.
+
+The remaining two items are acceptance/operational observation gates rather than missing Phase 7 implementation.
 
 ## Constraints
 
@@ -81,4 +85,4 @@ Production acceptance still required after merge/deployment:
 
 ## Phase 7 closure rule
 
-Do not close Phase 7 until the implementation passes CI and production acceptance on the deployed commit. The failure/recovery behavior must remain documented and tested.
+Close Phase 7 after the manual UI walkthrough and one normal scheduled refresh observation are completed. No further code changes are required for those gates unless an actual failure is discovered.
