@@ -2,64 +2,38 @@
 
 ## Result
 
-**Phase 5 production smoke gate: PASS.**
+**Phase 5 implementation and production integration: PASS. Formal closure: pending one R2 housekeeping item.**
 
-## Gate 1 — Data publication
+## Verified
 
-- [x] GitHub Actions builds canonical 10-year dataset
-- [x] Metrics build completes
-- [x] Dataset validation completes
-- [x] Immutable R2 versions are uploaded
-- [x] Latest pointer advances only after successful upload
-- [x] Manual refresh works
-
-## Gate 2 — Application delivery
-
-- [x] Vercel production deployment succeeds
-- [x] Live frontend loads
-- [x] Live screener query returns ranked results
-- [x] API-driven architecture confirmed
-
-## Gate 3 — Fresh-instance recovery
-
-- [x] R2 pointer contract tested
-- [x] Fresh API bootstrap path covered by automated test
-- [x] Production smoke exercises the deployed API
-- [x] Runtime dataset hydration is R2-backed
-
-## Gate 4 — Production API
-
-- [x] `/api/v1/health`
-- [x] `/api/v1/screener/metadata`
-- [x] filtered query
-- [x] search and sorting
-- [x] CSV export
-- [x] stock detail
-- [x] chart endpoint
-- [x] production CORS
+- [x] Canonical 10-year dataset build
+- [x] Metrics build and validation
+- [x] Immutable R2 publication
+- [x] Latest-pointer safety
+- [x] Real R2 publication
+- [x] Render FastAPI deployment
+- [x] Vercel frontend deployment
+- [x] Runtime R2 hydration
+- [x] Production CORS
+- [x] Health/metadata/query/export
+- [x] Stock detail/chart
+- [x] Search/filter/sort
 - [x] 400/404 handling
+- [x] Production smoke workflow
+- [x] Real NSE 750/Yahoo validation
 
-## Gate 5 — UX and performance
+## Only remaining Phase 5 gate
 
-- [x] Production frontend availability
-- [x] Production query smoke
-- [x] Repeated query smoke
-- [ ] Detailed p50/p95 benchmark
-- [ ] Real-device mobile audit
-- [ ] Extended desktop UX audit
-- [ ] Deep-link and stale-data scenario expansion
+- [ ] **Verify/configure R2 object lifecycle/retention policy.**
 
-These remaining items are Phase 6 validation tasks, not Phase 5 blockers.
+The policy must prevent indefinite accumulation of immutable historical versions while leaving `pointers/` and the currently active dataset available.
 
-## Gate 6 — Operational resilience
+Suggested initial retention: 30 days for `datasets/` and `metrics/`, with incomplete multipart uploads cleaned up after 7 days. This is a proposal until the actual bucket configuration is verified.
 
-- [x] Failed publication preserves previous pointer by design and test coverage
-- [x] Scheduled refresh workflow exists
-- [ ] R2 lifecycle/retention policy audit
-- [ ] Extended operational monitoring/alerting
+## APCOTEXIND clarification
 
-These remaining items are Phase 7 hardening tasks.
+`APCOTEXIND.NS` is not a production frontend-display test. It was never intended to be shown in the frontend. It is only a data-pipeline/newly-injected-stock fixture.
 
-## Phase 6 rule
+## Closure rule
 
-No architectural redesign before measuring the deployed bottleneck. No optimisation without p50/p95 evidence.
+Do not mark Phase 5 formally closed until the actual Cloudflare R2 bucket lifecycle configuration has been verified/configured. After that, Phase 6 can begin.
