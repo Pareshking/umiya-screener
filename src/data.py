@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import time
+from math import ceil
 from typing import Sequence
 
 import pandas as pd
@@ -11,6 +12,7 @@ import yfinance as yf
 from .config import (
     EXPECTED_INDEX_COUNTS,
     HTTP_HEADERS,
+    INDEX_COUNT_MIN_RATIO,
     INDEX_LOCAL_PATHS,
     INDEX_URLS,
     MAX_DATA_AGE_DAYS,
@@ -47,8 +49,27 @@ def _download_nse_csv(url: str) -> bytes:
     raise RuntimeError(f"Unable to download NSE constituent CSV: {last_error}")
 
 
+def _validate_index_count(index_name: str, actual: int) -> str | None:
+    """Validate an NSE source count without requiring the nominal count to stay fixed.
+
+    Returns a warning for legitimate count changes and raises for a source that
+    is implausibly incomplete. This lets constituent/security counts move with
+    NSE while protecting the pipeline from truncated or malformed downloads.
+    """
+    expected = EXPECTED_INDEX_COUNTS[index_name]
+    minimum = max(1, ceil(expected * INDEX_COUNT_MIN_RATIO))
+    if actual < minimum:
+        raise ValueError(
+            f"{index_name}: parsed only {actual} constituents; "
+            f"expected about {expected} and at least {minimum} is required"
+        )
+    if actual != expected:
+        return f"{index_name}: constituent count changed from baseline {expected} to {actual}"
+    return None
+
+
 def load_universe() -> pd.DataFrame:
-    """Load the canonical Umiya 750 universe from official NSE index files."""
+    """Load the canonical Umiya universe from current official NSE index files."""
     frames: list[pd.DataFrame] = []
     errors: list[str] = []
     for index_name, url in INDEX_URLS.items():
@@ -70,10 +91,10 @@ def load_universe() -> pd.DataFrame:
                 errors.append(f"{index_name}: {exc}")
         if frame is None:
             continue
-        expected = EXPECTED_INDEX_COUNTS[index_name]
         actual = len(frame)
-        if actual < max(1, expected - 5) or actual > expected + 5:
-            errors.append(f"{index_name}: expected about {expected}, parsed {actual}")
+        count_warning = _validate_index_count(index_name, actual)
+        if count_warning:
+            errors.append(count_warning)
         frame["Index"] = index_name
         frames.append(frame)
     if len(frames) != len(INDEX_URLS):
