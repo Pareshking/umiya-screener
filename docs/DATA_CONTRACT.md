@@ -2,15 +2,7 @@
 
 ## Universe
 
-Exactly 750 unique NSE symbols from:
-
-- Nifty 50
-- Nifty Next 50
-- Nifty Midcap 150
-- Nifty Smallcap 250
-- Nifty Microcap 250
-
-Index membership is retained.
+The canonical universe is based on the NSE index composition used by the project. The pipeline validates constituent coverage dynamically and applies a catastrophic-incompleteness floor; do not assume a permanently fixed row count if official constituent counts change.
 
 ## Market data
 
@@ -29,6 +21,26 @@ The canonical historical window is the last 10 years from build date.
 - explicit handling of missing/invalid values
 - no silent look-ahead
 
+## Missing price observations
+
+For the V2 canonical price matrix, missing observations are forward-filled **after the first genuine observation for each stock**. Values before a stock's first observation are never imputed. This preserves the common market-date grid without fabricating pre-listing history.
+
+## Momentum windows
+
+The primary multi-window momentum system uses matched full lookback windows:
+
+| Horizon | Trading-day window |
+|---|---:|
+| 1M | 21 |
+| 3M | 63 |
+| 6M | 126 |
+| 9M | 189 |
+| 12M | 252 |
+
+Sharpe/R² calculations require the full corresponding window. If a stock does not have enough genuine history for a longer horizon, that component is unavailable rather than assigned a neutral zero. The composite score renormalizes the configured weights over the components actually available for that stock/date.
+
+Primary screener eligibility remains 126 genuine observations.
+
 ## Metrics
 
 Metrics are calculated offline and published as prepared analytical data. The API does not calculate the market on demand.
@@ -45,13 +57,15 @@ Render API may hydrate the latest published datasets from R2. Runtime local disk
 
 ## Test fixture rule
 
-`APCOTEXIND.NS` may be used as an opt-in newly-injected-stock test. The fixture must not change the canonical production NSE 750 membership merely to make the frontend show the stock.
+`APCOTEXIND.NS` may be used as an opt-in newly-injected-stock test. The fixture must not change the canonical production NSE universe merely to make the frontend show the stock.
 
 ## Prohibited changes without explicit review
 
 - Adding OHLC fields because a metric happens to need them.
 - Changing the 10-year window silently.
 - Changing freshness/eligibility rules silently.
-- Changing the canonical 750-universe definition silently.
-- Replacing Adj Close with unadjusted Close.
+- Changing the canonical universe definition silently.
+- Replacing Adjusted Close with unadjusted Close in V2.
+- Removing the approved post-first-observation forward-fill behaviour.
+- Treating unavailable long-lookback momentum components as zero instead of renormalizing available weights.
 - Replacing failed data with hard-coded values.
