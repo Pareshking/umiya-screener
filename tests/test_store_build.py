@@ -19,17 +19,28 @@ def test_store_builds_expected_metric_table(monkeypatch, tmp_path):
         "Index": ["NIFTY 50", "NIFTY NEXT 50", "NIFTY MIDCAP 150"],
     })
 
+    calls = {"prices": 0}
     monkeypatch.setattr(service, "load_universe", lambda: universe.copy())
-    monkeypatch.setattr(service, "fetch_ohlcv", lambda symbols, period="2y": {
-        "close": close, "high": high, "low": low, "volume": volume,
-    })
+
+    def fake_prices(symbols, period="2y"):
+        calls["prices"] += 1
+        return {"close": close, "high": high, "low": low, "volume": volume}
+
+    monkeypatch.setattr(service, "fetch_ohlcv", fake_prices)
     monkeypatch.setattr(service, "METRICS_CACHE_PATH", tmp_path / "metrics.parquet")
 
     store = service.ScreenerStore()
     frame = store.get(force=True)
 
     assert len(frame) == 3
-    assert set(["Momentum Score", "Acceleration", "3M Sharpe", "6M Sharpe", "R² 1Y", "Rank"]).issubset(frame.columns)
+    assert {"Momentum Score", "Acceleration", "3M Sharpe", "6M Sharpe", "R² 1Y", "Rank"}.issubset(frame.columns)
     assert frame["Rank"].notna().all()
     assert frame["CMP"].notna().all()
     assert (tmp_path / "metrics.parquet").exists()
+    assert calls["prices"] == 1
+
+    # A fresh process/store should hydrate from Parquet without downloading again.
+    cached_store = service.ScreenerStore()
+    cached = cached_store.get()
+    assert len(cached) == 3
+    assert calls["prices"] == 1
