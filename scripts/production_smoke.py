@@ -35,15 +35,19 @@ def main() -> int:
                 failures += 1
                 return None, 0.0
 
-        r, _ = check("liveness", "GET", "/api/v1/live")
-        if r:
-            if r.json().get("status") != "alive" or not r.headers.get("x-request-id"):
-                failures += 1
-
+        # Render can cold-start the service. Hit readiness first so the
+        # wake-up request is allowed to complete before the cheap liveness
+        # assertion. This avoids a false-negative caused solely by request
+        # ordering while still checking both endpoints independently.
         r, _ = check("readiness", "GET", "/api/v1/ready")
         if r:
             data = r.json()
             if data.get("status") != "ready" or data.get("dataset_ready") is not True:
+                failures += 1
+
+        r, _ = check("liveness", "GET", "/api/v1/live")
+        if r:
+            if r.json().get("status") != "alive" or not r.headers.get("x-request-id"):
                 failures += 1
 
         r, _ = check("health", "GET", "/api/v1/health")
