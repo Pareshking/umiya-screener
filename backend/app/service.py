@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import json
 import threading
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from src.config import METRICS_CACHE_PATH, METRICS_CACHE_TTL_HOURS
-from src.data import align_trailing_to_as_of, eligible_symbols, fetch_ohlcv, latest_market_date, load_universe
-from src.quant import momentum_acceleration, momentum_score, technical_snapshot
+from src.quant import industry_relative, momentum_acceleration, momentum_score, rolling_r2, sharpe, technical_snapshot
+
+ROOT = Path(__file__).resolve().parents[2]
+PRICE_ROOT = ROOT / "data_cache" / "price_history"
 
 
 class MetricsCacheUnavailable(RuntimeError):
@@ -19,50 +23,65 @@ class MetricsCacheStale(RuntimeError):
     """Raised when the analytical dataset is older than the configured TTL."""
 
 
+def _load_phase1_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    pointer = PRICE_ROOT / "LATEST.json"
+    if not pointer.exists():
+        raise MetricsCacheUnavailable("Phase 1 price dataset is not published. Run scripts/build_data.py.")
+    try:
+        dataset_name = json.loads(pointer.read_text(encoding="utf-8"))["dataset"]
+    except (OSError, KeyError, json.JSONDecodeError) as exc:
+        raise MetricsCacheUnavailable("LATEST.json is invalid.") from exc
+    dataset = PRICE_ROOT / dataset_name
+    if not dataset.is_dir():
+        raise MetricsCacheUnavailable(f"Published dataset {dataset_name!r} is missing.")
+    try:
+        close = pd.read_parquet(dataset / "adj_close.parquet")
+        volume = pd.read_parquet(dataset / "volume.parquet")
+        eligibility = pd.read_parquet(dataset / "eligibility.parquet")
+    except (OSError, ValueError, ImportError) as exc:
+        raise MetricsCacheUnavailable("Published Phase 1 dataset cannot be read.") from exc
+    return close, volume, eligibility
+
+
 def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
-    """Build the market-wide analytical dataset offline.
+    """Calculate the complete offline screener dataset from Phase 1 data."""
+    close, volume, eligibility = _load_phase1_dataset()
+    symbols = eligibility["Symbol"].astype(str).tolist()
+    close = close.reindex(columns=symbols)
+    volume = volume.reindex(columns=symbols)
+    if close.empty or volume.empty or not symbols:
+        raise RuntimeError("Canonical Phase 1 dataset contains no eligible stocks.")
 
-    All stocks are evaluated against one common market as-of date. A stock
-    remains eligible when it has >=126 valid observations and its last source
-    observation is no more than three calendar days behind that common date.
-    This prevents a stock's own later date from making its metrics appear
-    newer than the rest of the universe.
-    """
-    universe = load_universe()
-    data = fetch_ohlcv(universe["Symbol"].tolist(), period="2y")
-    close, high, low, volume = data["close"], data["high"], data["low"], data["volume"]
-    if close.empty:
-        raise RuntimeError("No price data was returned for the NSE 750 universe.")
-
-    as_of = latest_market_date(close)
-    eligibility = eligible_symbols(close, as_of=as_of)
-    if eligibility.empty:
-        raise RuntimeError("No NSE 750 stocks satisfy the 126-observation and 3-day freshness rules.")
-    symbols = eligibility["Symbol"].tolist()
-
-    # Align only the short trailing gap for eligible stocks. Interior history
-    # gaps remain missing and are handled by the quantitative functions.
-    close = align_trailing_to_as_of(close, symbols, as_of)
-    high = align_trailing_to_as_of(high, symbols, as_of)
-    low = align_trailing_to_as_of(low, symbols, as_of)
-    volume = align_trailing_to_as_of(volume, symbols, as_of)
-
+    # Keep missing observations missing. Phase 1 already established the
+    # common market as-of date and freshness eligibility.
+    universe = _load_universe_from_phase1(symbols)
     scores = momentum_score(close).iloc[-1].rename("Momentum Score")
-    accel = momentum_acceleration(close).rename("Acceleration")
-    tech = technical_snapshot(close, high, low, volume)
-    frame = universe.set_index("Symbol").reindex(symbols).join([scores, accel, tech], how="left")
+    acceleration = momentum_acceleration(close).rename("Acceleration")
+    technical = technical_snapshot(close, volume)
 
+    frame = universe.set_index("Symbol").reindex(symbols).join([scores, acceleration, technical], how="left")
     frame = frame.join(eligibility.set_index("Symbol")[["Last Price Date", "Data Age Days"]], how="left")
-    frame["Industry Relative"] = frame["Momentum Score"] - frame.groupby("Industry")["Momentum Score"].transform("mean")
+    frame["Industry Relative"] = industry_relative(frame["Momentum Score"], universe)
     frame["Rank"] = frame["Momentum Score"].rank(ascending=False, method="min", na_option="bottom").astype("Int64")
-    frame["R² 1Y"] = _rolling_r2(close, 252).iloc[-1].reindex(frame.index)
-    frame["3M Sharpe"] = _sharpe(close, 63).iloc[-1].reindex(frame.index)
-    frame["6M Sharpe"] = _sharpe(close, 126).iloc[-1].reindex(frame.index)
-    frame["Market As Of"] = as_of
+    frame["R² 1Y"] = rolling_r2(close, 252).iloc[-1].reindex(frame.index)
+    frame["3M Sharpe"] = sharpe(close, 63).iloc[-1].reindex(frame.index)
+    frame["6M Sharpe"] = sharpe(close, 126).iloc[-1].reindex(frame.index)
+    metadata_path = PRICE_ROOT / "LATEST.json"
+    dataset_name = json.loads(metadata_path.read_text(encoding="utf-8"))["dataset"]
+    metadata = json.loads((PRICE_ROOT / dataset_name / "metadata.json").read_text(encoding="utf-8"))
+    frame["Market As Of"] = pd.Timestamp(metadata["market_as_of"])
     frame = frame.reset_index()
+    return frame, datetime.now(timezone.utc)
 
-    built_at = datetime.now(timezone.utc)
-    return frame, built_at
+
+def _load_universe_from_phase1(symbols: list[str]) -> pd.DataFrame:
+    """Use constituent metadata persisted by the Phase 1 build."""
+    # Phase 1 currently persists the canonical symbols in eligibility. For
+    # company/industry metadata, load the official universe again only during
+    # the offline metric build; the API never performs this network operation.
+    from src.data import load_universe
+    universe = load_universe()
+    return universe[universe["Symbol"].isin(symbols)].copy()
 
 
 def write_metric_cache(frame: pd.DataFrame, built_at: datetime) -> None:
@@ -82,19 +101,6 @@ def _load_cache() -> tuple[pd.DataFrame, datetime] | None:
     except (OSError, ValueError, ImportError):
         return None
     return frame, modified
-
-
-def _rolling_r2(prices: pd.DataFrame, window: int) -> pd.DataFrame:
-    logp = np.log(prices.clip(lower=0.01))
-    t = pd.Series(np.arange(len(logp), dtype=float), index=logp.index)
-    return logp.rolling(window, min_periods=max(10, int(window * 0.8))).corr(t) ** 2
-
-
-def _sharpe(prices: pd.DataFrame, window: int) -> pd.DataFrame:
-    ret = np.log(prices / prices.shift(1).replace(0, np.nan))
-    change = np.log(prices / prices.shift(window).replace(0, np.nan))
-    vol = ret.rolling(window, min_periods=max(10, int(window * 0.8))).std() * np.sqrt(window)
-    return change / vol.replace(0, np.nan)
 
 
 class ScreenerStore:
@@ -128,10 +134,10 @@ class ScreenerStore:
 store = ScreenerStore()
 
 FILTERABLE = [
-    "Rank", "Index", "CMP", "Momentum Score", "Industry Relative", "Acceleration",
-    "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe",
-    "R² 1Y", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "ATR %",
-    "Persistence 6M %", "Volume Ratio", "Industry", "Within 20% of 52W High",
+    "Rank", "Index", "Symbol", "CMP", "Momentum Score", "Industry Relative", "Acceleration",
+    "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe",
+    "R² 1Y", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %",
+    "Volume Ratio", "Industry", "Within 20% of 52W High", "Data Age Days",
 ]
 
 
@@ -151,8 +157,8 @@ def query(payload) -> dict:
         else:
             numeric = pd.to_numeric(s, errors="coerce")
             v = float(value)
-            mask = {">": numeric > v, ">=": numeric >= v, "<": numeric < v, "<=": numeric <= v}[op]
-            frame = frame[mask]
+            masks = {">": numeric > v, ">=": numeric >= v, "<": numeric < v, "<=": numeric <= v}
+            frame = frame[masks[op]]
     field = payload.sort.field if payload.sort.field in frame.columns else "Rank"
     frame = frame.sort_values(field, ascending=payload.sort.direction == "asc", na_position="last")
     total = len(frame)
