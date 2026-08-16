@@ -41,7 +41,10 @@ def test_returns_use_trading_observations():
     assert np.isclose(out.loc["A", "3M Return"], expected)
 
 
-def test_12m_return_is_unavailable_when_history_is_short():
+def test_12m_return_remains_missing_when_history_is_short():
+    # 126 observations satisfy V2 eligibility, but are insufficient for a
+    # 252-observation point-to-point return. Never convert unavailable history
+    # to a neutral 0%, because that would manufacture financial information.
     close, _ = monotonic_data(126)
     out = returns(close)
     assert pd.isna(out.loc["A", "12M Return"])
