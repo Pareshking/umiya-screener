@@ -35,6 +35,6 @@ if __name__ == "__main__":
     if not keys:
         raise SystemExit("Dataset directory contains no files")
 
-    target = json.dumps({"prefix": args.prefix.rstrip("/")}, separators=(",", ":"))
-    publish_pointer(store, args.pointer, target)
+    # publish_pointer owns the JSON serialization; pass the canonical raw prefix.
+    publish_pointer(store, args.pointer, args.prefix)
     print(json.dumps({"uploaded_objects": len(keys), "pointer": args.pointer, "target": args.prefix}, indent=2))
