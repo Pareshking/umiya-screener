@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from src.config import METRICS_CACHE_PATH, METRICS_CACHE_TTL_HOURS
-from src.data import fetch_ohlcv, load_universe
+from src.data import align_trailing_to_as_of, eligible_symbols, fetch_ohlcv, latest_market_date, load_universe
 from src.quant import momentum_acceleration, momentum_score, technical_snapshot
 
 
@@ -20,32 +20,45 @@ class MetricsCacheStale(RuntimeError):
 
 
 def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
-    """Build the market-wide analytical dataset.
+    """Build the market-wide analytical dataset offline.
 
-    This is an offline/data-pipeline operation. It is deliberately not called
-    by normal API queries or page loads. Use scripts/build_metrics.py or a
-    scheduled job to refresh the dataset.
+    All stocks are evaluated against one common market as-of date. A stock
+    remains eligible when it has >=126 valid observations and its last source
+    observation is no more than three calendar days behind that common date.
+    This prevents a stock's own later date from making its metrics appear
+    newer than the rest of the universe.
     """
     universe = load_universe()
     data = fetch_ohlcv(universe["Symbol"].tolist(), period="2y")
-    close, high, low, volume = (
-        data["close"], data["high"], data["low"], data["volume"]
-    )
+    close, high, low, volume = data["close"], data["high"], data["low"], data["volume"]
     if close.empty:
         raise RuntimeError("No price data was returned for the NSE 750 universe.")
+
+    as_of = latest_market_date(close)
+    eligibility = eligible_symbols(close, as_of=as_of)
+    if eligibility.empty:
+        raise RuntimeError("No NSE 750 stocks satisfy the 126-observation and 3-day freshness rules.")
+    symbols = eligibility["Symbol"].tolist()
+
+    # Align only the short trailing gap for eligible stocks. Interior history
+    # gaps remain missing and are handled by the quantitative functions.
+    close = align_trailing_to_as_of(close, symbols, as_of)
+    high = align_trailing_to_as_of(high, symbols, as_of)
+    low = align_trailing_to_as_of(low, symbols, as_of)
+    volume = align_trailing_to_as_of(volume, symbols, as_of)
 
     scores = momentum_score(close).iloc[-1].rename("Momentum Score")
     accel = momentum_acceleration(close).rename("Acceleration")
     tech = technical_snapshot(close, high, low, volume)
-    frame = universe.set_index("Symbol").join([scores, accel, tech], how="left")
+    frame = universe.set_index("Symbol").reindex(symbols).join([scores, accel, tech], how="left")
 
+    frame = frame.join(eligibility.set_index("Symbol")[["Last Price Date", "Data Age Days"]], how="left")
     frame["Industry Relative"] = frame["Momentum Score"] - frame.groupby("Industry")["Momentum Score"].transform("mean")
-    frame["Rank"] = frame["Momentum Score"].rank(
-        ascending=False, method="min", na_option="bottom"
-    ).astype("Int64")
+    frame["Rank"] = frame["Momentum Score"].rank(ascending=False, method="min", na_option="bottom").astype("Int64")
     frame["R² 1Y"] = _rolling_r2(close, 252).iloc[-1].reindex(frame.index)
     frame["3M Sharpe"] = _sharpe(close, 63).iloc[-1].reindex(frame.index)
     frame["6M Sharpe"] = _sharpe(close, 126).iloc[-1].reindex(frame.index)
+    frame["Market As Of"] = as_of
     frame = frame.reset_index()
 
     built_at = datetime.now(timezone.utc)
@@ -85,11 +98,7 @@ def _sharpe(prices: pd.DataFrame, window: int) -> pd.DataFrame:
 
 
 class ScreenerStore:
-    """Read-only serving store for the precomputed analytical dataset.
-
-    API requests never download market data and never rebuild the NSE 750
-    metrics. Dataset construction belongs to the scheduled/offline pipeline.
-    """
+    """Read-only serving store for the precomputed analytical dataset."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -104,14 +113,10 @@ class ScreenerStore:
                 return self._frame.copy()
             cached = _load_cache()
             if cached is None:
-                raise MetricsCacheUnavailable(
-                    "Screener dataset is not built yet. Run scripts/build_metrics.py."
-                )
+                raise MetricsCacheUnavailable("Screener dataset is not built yet. Run scripts/build_metrics.py.")
             frame, built_at = cached
             if datetime.now(timezone.utc) - built_at > timedelta(hours=METRICS_CACHE_TTL_HOURS):
-                raise MetricsCacheStale(
-                    "Screener dataset is stale. Run scripts/build_metrics.py."
-                )
+                raise MetricsCacheStale("Screener dataset is stale. Run scripts/build_metrics.py.")
             self._frame, self._built_at = frame, built_at
             return frame.copy()
 
@@ -148,7 +153,6 @@ def query(payload) -> dict:
             v = float(value)
             mask = {">": numeric > v, ">=": numeric >= v, "<": numeric < v, "<=": numeric <= v}[op]
             frame = frame[mask]
-
     field = payload.sort.field if payload.sort.field in frame.columns else "Rank"
     frame = frame.sort_values(field, ascending=payload.sort.direction == "asc", na_position="last")
     total = len(frame)
