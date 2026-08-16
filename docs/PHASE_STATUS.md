@@ -33,34 +33,35 @@ Validated:
 - Production smoke: **passed**
 - R2 lifecycle policy configured/verified: `datasets/` 30 days, `metrics/` 30 days, `pointers/` protected, incomplete multipart uploads 7 days
 
-## Phase 6 — Production measurement and performance
+## Phase 6 — Production measurement, correctness and performance
 
-**ACTIVE — started 2026-08-16.**
+**ACTIVE — 6A through 6F in progress, 2026-08-16.**
 
-### First deliverable
+### 6A — Chart consistency and caching
 
-Run `.github/workflows/phase6-benchmark.yml` manually and capture the baseline artifact from `scripts/phase6_benchmark.py`.
+Startup price-dataset warming and per-symbol chart caching are implemented. Chart access is now aligned with the current eligible screener universe. Final production re-benchmark is required after deployment.
 
-### Measurement sequence
+### 6B — Frontend/API failure-state audit
 
-1. initial frontend HTTP response
-2. unfiltered screener query
-3. numeric filter
-4. multi-filter
-5. search
-6. sort
-7. CSV export
-8. stock detail
-9. 3M/6M/1Y chart
-10. Render cold-start behaviour
-11. R2 bootstrap behaviour
-12. real-device/mobile UX
-13. data freshness/as-of display
-14. controlled APCOTEXIND injected-stock pipeline test
+Source-level audit covers retry/error handling, abortable stock requests, CORS allow-listing, HTTP 400/404 behavior and health degradation reporting. Final browser/mobile walkthrough remains an acceptance gate.
 
-### Rule
+### 6C — Data freshness and scheduled refresh
 
-Do not optimise until p50/p95 baseline is recorded. Optimise only the measured bottleneck and repeat the benchmark afterward.
+Weekday refresh, canonical dataset validation, immutable R2 publication, 24-hour metrics TTL, `market_as_of` and `built_at` visibility are verified in the production architecture.
+
+### 6D — Corporate-action / universe resilience
+
+Index counts are reference values rather than hard limits. Legitimate changes such as NIFTY 50 moving from 50 to 51 constituents are accepted and warned; catastrophic source loss is rejected. Existing tests cover this behavior. APCOTEXIND has an injected-stock pipeline test.
+
+### 6E — Security/configuration audit
+
+Production CORS, secret handling, R2 lifecycle, dependency review and Dependabot are configured. Final acceptance is tied to the deployed production configuration.
+
+### 6F — Final production acceptance
+
+Close Phase 6 only after the same deployed commit passes validation, production smoke, Phase 6 benchmark, APCOTEXIND production path verification when present, and browser/mobile walkthrough.
+
+See `docs/PHASE6_STATUS.md` for the detailed checklist and benchmark baseline.
 
 ## Phase 7 — Production hardening
 
