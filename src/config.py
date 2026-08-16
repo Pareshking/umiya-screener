@@ -6,6 +6,8 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
 CACHE_DIR = BASE_DIR / "data_cache"
 CACHE_DIR.mkdir(exist_ok=True)
+METRICS_CACHE_PATH = CACHE_DIR / "screener_metrics.parquet"
+METRICS_CACHE_TTL_HOURS = 24
 
 MOMENTUM_WINDOWS = (21, 63, 126, 189, 252)
 DEFAULT_LOOKBACK_WEIGHTS = (0.10, 0.30, 0.30, 0.20, 0.10)
@@ -29,9 +31,6 @@ EXPECTED_INDEX_COUNTS = {
     "NIFTY NEXT 50": 50,
     "NIFTY MIDCAP 150": 150,
     "NIFTY SMALLCAP 250": 250,
-    # NSE documentation describes this as a 250-stock index. We validate
-    # source data rather than silently forcing the count if NSE publishes a
-    # temporary constituent-count discrepancy.
     "NIFTY MICROCAP 250": 250,
 }
 
