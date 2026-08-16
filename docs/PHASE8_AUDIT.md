@@ -7,21 +7,76 @@
 
 Initial review covered the production Screener frontend, stock-detail frontend, FastAPI endpoints, query service, data-contract boundaries, and production architecture.
 
-## Finding 8A-01 — stale query response race
+## Findings and fixes
 
-### Risk
+### Finding 8A-01 — stale query response race
 
-The Screener fired debounced query requests when filters, search, sort, or page changed, but previous in-flight requests were not cancelled. A slower older response could therefore arrive after a newer response and overwrite the current screen.
+**Risk:** Debounced Screener requests could overlap. A slower older response could arrive after a newer response and overwrite the current screen, especially on mobile networks and rapid filter/search changes.
 
-This is especially relevant on mobile networks and during rapid search/filter changes.
+**Fix:** `frontend/app/page.tsx` uses a per-query `AbortController`, passes its signal to `fetch`, aborts the previous request during effect cleanup, ignores `AbortError`, and prevents aborted requests from changing loading/error/result state.
 
-### Fix
+**Status:** **FIXED and CI-validated.**
 
-`frontend/app/page.tsx` now creates an `AbortController` for each query effect, passes its signal to `fetch`, aborts the previous request during cleanup, ignores `AbortError`, and prevents aborted requests from changing loading/error/result state.
+### Finding 8A-02 — request errors were presented as dataset degradation
 
-### Status
+**Risk:** Any query failure, including a client-side 400 contract error, set the global status to `DEGRADED` and labelled the dataset unavailable.
 
-**FIXED — awaiting CI/frontend build.**
+**Fix:** Frontend now distinguishes API/data unavailability (`503`) from request/contract errors. Only data unavailability enters the degraded state; request failures use a warning/request-failed presentation.
+
+**Status:** **FIXED.**
+
+### Finding 8A-03 — filter search control was non-functional
+
+**Risk:** The mobile filter drawer displayed a search input that did not affect available filter choices.
+
+**Fix:** Filter search is now stateful and filters the canonical index and momentum choices shown in the drawer.
+
+**Status:** **FIXED.**
+
+### Finding 8A-04 — saved screen had no restore path
+
+**Risk:** Save Screen wrote local state but the saved screen was not restored on a later visit.
+
+**Fix:** The existing local save is now restored on initial mount. Malformed local state is ignored safely.
+
+**Status:** **FIXED.**
+
+### Finding 8B-01 — unsupported sort silently fell back to Rank
+
+**Risk:** An invalid sort field could produce a successful response sorted by `Rank`, hiding an API contract error.
+
+**Fix:** Added an explicit `SORTABLE` contract. Unsupported sort fields now raise `ValueError`, mapped by FastAPI to HTTP 400. The response also exposes `available_sorts`.
+
+**Status:** **FIXED and regression-tested.**
+
+### Finding 8B-02 — out-of-range page could return an empty page despite matching rows
+
+**Risk:** A stale page number after filters changed could request a page beyond the new last page and receive no rows even when matches existed.
+
+**Fix:** Query pagination now clamps an out-of-range page to the last available page while preserving the empty-result contract when `total == 0`.
+
+**Status:** **FIXED and regression-tested.**
+
+### Finding 8B-03 — numeric equality did not coerce string values
+
+**Risk:** Numeric filter values supplied as strings could fail exact-match filtering while range operators already coerced numerically.
+
+**Fix:** Numeric `=` filters now use numeric coercion; invalid numeric values still raise a clear validation error.
+
+**Status:** **FIXED and regression-tested.**
+
+## Regression coverage
+
+`tests/test_phase8_edge_cases.py` now covers:
+
+- empty-result pagination;
+- combined search/filter/sort/pagination ordering;
+- out-of-range page clamping;
+- numeric equality coercion;
+- unsupported sort contract errors;
+- missing numeric values remaining unavailable rather than fabricated.
+
+The validation workflow for the preceding Phase 8 test commit passed on `main`; the new commits are expected to trigger the same validation and production-smoke gates.
 
 ## Findings reviewed with no defect requiring change
 
@@ -36,15 +91,17 @@ This is especially relevant on mobile networks and during rapid search/filter ch
 - R2/metrics data remains backend-driven; frontend does not calculate market-wide metrics.
 - Current universe row count is obtained from the dataset rather than forcing 750 rows in the query result.
 
-## Known contract/UX observations for subsequent 8B/8C work
+## Known observations for subsequent 8C–8F work
 
-1. The API metadata label `universe_name` is currently a stable product label (`NIFTY 750`) while the actual `universe` count is dynamic. This is acceptable for the product naming convention, but documentation/UI should continue to distinguish product universe name from live constituent count.
+1. `universe_name` remains the stable product label (`NIFTY 750`) while `universe` is the live eligible constituent count. UI now labels the KPI as the live eligible universe.
 2. Frontend filter choices intentionally enumerate the five canonical index families; constituent membership inside those families is data-driven.
 3. APCOTEXIND remains a pipeline fixture and must not be promoted into the production universe merely to make a UI test pass.
-4. A query with an unsupported sort field currently falls back to `Rank`; this is safe but should be reviewed as an API contract-quality improvement during 8D rather than silently relying on it.
+4. Response payload size, refresh idempotency, last-known-good behavior, R2 lifecycle interaction, and production latency still require the dedicated 8C–8E audit.
 
 ## Next execution
 
-- Run CI and frontend build for 8A-01.
-- Continue 8B edge-case tests against the query API: empty results, combined filters, null metrics, pagination boundaries, dynamic universe counts, and newly appearing/missing symbols.
-- Then proceed to 8C–8F with the same evidence-first approach.
+1. Validate the new commits through CI/frontend build and production smoke.
+2. Complete the 8C data-pipeline resilience audit.
+3. Complete 8D API quality/payload review.
+4. Measure 8E production/frontend performance and only optimize evidence-backed bottlenecks.
+5. Complete 8F documentation/release synchronization.
