@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -15,8 +16,9 @@ from .service import FILTERABLE, MetricsCacheStale, MetricsCacheUnavailable, que
 
 ROOT = Path(__file__).resolve().parents[2]
 PRICE_ROOT = ROOT / "data_cache" / "price_history"
-app = FastAPI(title="Umiya Screener API", version="0.4.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["*"])
+app = FastAPI(title="Umiya Screener API", version="0.4.1")
+origins = [item.strip() for item in os.getenv("ALLOWED_ORIGINS", "*").split(",") if item.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["*"])
 
 
 def _cache_error(exc: Exception) -> HTTPException:
