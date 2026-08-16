@@ -1,50 +1,78 @@
-# Phase 10 — Screener UI/UX Upgrade
+# Phase 10 — World-Class Screener UI/UX
 
-**Status: IN PROGRESS — 2026-08-16**
+**Status: RELEASE CANDIDATE — awaiting Vercel deployment**
 
-Phase 10 is the first product-facing phase after production acceptance. The goal is to make the Screener substantially more polished and usable than the original Streamlit experience while preserving the existing API, data contract and quantitative methodology.
+Updated: 2026-08-16
 
-## Design goals
+Phase 10 is the product-facing UI/UX phase after production acceptance. The goal is to make Umiya a substantially better research website than the original Streamlit application while preserving the existing quantitative engine, API contracts and data methodology.
 
-- fast, dense but readable research interface;
-- clear hierarchy between dataset state, filters, KPIs and ranked results;
-- responsive desktop/tablet/mobile behavior;
-- useful feedback during loading, empty results, errors and degraded dataset states;
-- efficient filter/search/sort workflows;
-- no frontend financial calculations;
-- preserve API-driven architecture and precomputed metrics.
+## Release-candidate work completed
 
-## Phase 10 delivered in this checkpoint
+### Screener
 
 - refreshed visual system with stronger hierarchy, spacing, typography and interaction states;
-- improved sidebar/header/filter/KPI/table/card styling;
-- four balanced desktop KPI cards instead of an under-filled six-column grid;
-- clearer active-filter chips and hover/focus states;
-- sticky table headers and improved table row interaction;
-- refined search, column controls and export controls;
-- improved mobile cards, bottom navigation and filter drawer presentation;
-- improved tablet layout breakpoints;
-- improved accessibility-oriented focus states and button/input affordances.
+- balanced desktop KPI layout;
+- clearer filter cards and active-filter chips;
+- sticky table headers and improved row scanning;
+- refined search, sort, column and export controls;
+- responsive tablet behavior;
+- purpose-built mobile result cards instead of forcing the desktop table onto a phone;
+- mobile filter drawer and bottom navigation;
+- clearer loading, empty, error and degraded states;
+- keyboard-visible focus states and improved interaction affordances.
 
-## Intentionally unchanged
+### Individual stock research page
+
+- redesigned stock identity/hero area;
+- prominent momentum rank, momentum score, CMP and 12-month return signals;
+- explicit trend status relative to the 200 EMA;
+- larger research-oriented adjusted-close chart with range selector;
+- dedicated Momentum & Returns section;
+- dedicated Technical Structure section;
+- separated Research Context / dataset provenance;
+- clearer desktop hierarchy and card composition;
+- mobile-responsive research layout;
+- back-to-Screener and research actions;
+- consistent visual language with the Screener.
+
+## Architecture guardrails
+
+The UI work does **not** change:
 
 - quantitative methodology;
+- server-side calculations;
 - API contracts;
-- server-side filtering, search, sorting and pagination;
+- server-side filtering/search/sort/pagination;
 - canonical Adj Close + Volume data contract;
 - R2 publication/storage architecture;
-- production deployment architecture.
+- Vercel/Render deployment architecture.
 
-## Acceptance criteria
+## Validation already completed
 
-1. Frontend build passes.
-2. Existing production API smoke remains green.
-3. No financial calculations move into React/TypeScript.
-4. Desktop layout is information-dense without unnecessary empty space.
-5. Mobile layout remains usable without horizontal table scrolling.
-6. Loading, empty, error and degraded states remain explicit.
-7. Documentation is synchronized after the final UI checkpoint.
+- production API smoke passed for the latest stock-page commit;
+- frontend source changes are committed to `main`;
+- stock-page and Screener styles are present in the production frontend source;
+- Phase 5–9 production/data/security gates remain the baseline.
 
-## Next UI pass
+## Remaining release gate
 
-After this baseline is deployed, the next iteration should be driven by actual browser/device observation and user feedback rather than speculative redesign.
+The current GitHub/Vercel status reports `build-rate-limit` for the Vercel deployment. This is a Vercel account/project deployment-capacity limitation, not a reported Next.js application build failure.
+
+Do not repeatedly trigger rebuilds while rate-limited. Once the rate limit clears, deploy the latest `main` commit once and perform the final real-browser acceptance pass.
+
+## Final acceptance checklist
+
+1. Vercel deploy succeeds for latest `main`.
+2. Desktop Screener review.
+3. Mobile Screener review.
+4. Desktop individual-stock review.
+5. Mobile individual-stock review.
+6. Test filter/search/sort/pagination/export.
+7. Open several stock pages and switch chart ranges.
+8. Verify loading/error/empty states.
+9. Confirm no visual regressions from the previous production release.
+10. Update this document and `docs/PHASE_STATUS.md` to **COMPLETE** only after the above evidence exists.
+
+## Product principle
+
+The original Streamlit application is the baseline to beat, not the design to copy. Phase 10 succeeds only when Umiya feels like a purpose-built quantitative research product: fast, clear, dense without being cluttered, and pleasant to use on both desktop and mobile.
