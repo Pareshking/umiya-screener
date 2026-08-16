@@ -13,6 +13,7 @@ from src.quant import industry_relative, momentum_acceleration, momentum_score, 
 
 ROOT = Path(__file__).resolve().parents[2]
 PRICE_ROOT = ROOT / "data_cache" / "price_history"
+METRICS_ROOT = ROOT / "data_cache" / "metrics"
 
 
 class MetricsCacheUnavailable(RuntimeError):
@@ -46,11 +47,9 @@ def _load_phase1_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd
 
 
 def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
-    """Calculate the complete offline screener dataset from Phase 1 data."""
     close, volume, eligibility, universe, metadata = _load_phase1_dataset()
     symbols = eligibility["Symbol"].astype(str).tolist()
-    close = close.reindex(columns=symbols)
-    volume = volume.reindex(columns=symbols)
+    close, volume = close.reindex(columns=symbols), volume.reindex(columns=symbols)
     if close.empty or volume.empty or not symbols:
         raise RuntimeError("Canonical Phase 1 dataset contains no eligible stocks.")
 
@@ -70,22 +69,57 @@ def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
 
 
 def write_metric_cache(frame: pd.DataFrame, built_at: datetime) -> None:
-    """Atomically publish a completed analytical dataset."""
-    METRICS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    """Publish immutable local metric version then atomically advance pointer."""
+    METRICS_ROOT.mkdir(parents=True, exist_ok=True)
+    version = built_at.strftime("%Y%m%dT%H%M%SZ")
+    target = METRICS_ROOT / f"dataset_{version}"
+    candidate = METRICS_ROOT / f"dataset_{version}.tmp"
+    candidate.mkdir(parents=True, exist_ok=False)
+    try:
+        frame.to_parquet(candidate / "screener_metrics.parquet", index=False)
+        metadata = {
+            "schema_version": "2.0",
+            "built_at_utc": built_at.isoformat(),
+            "rows": int(len(frame)),
+            "market_as_of": str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None,
+            "source_contract": ["adj_close", "volume"],
+        }
+        (candidate / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        candidate.replace(target)
+    except Exception:
+        import shutil
+        shutil.rmtree(candidate, ignore_errors=True)
+        raise
+
+    pointer_tmp = METRICS_ROOT / "LATEST.tmp.json"
+    pointer_tmp.write_text(json.dumps({"dataset": target.name}, indent=2), encoding="utf-8")
+    pointer_tmp.replace(METRICS_ROOT / "LATEST.json")
+
+    # Compatibility path for existing local deployments; it is not the source
+    # of truth and can be deleted/rebuilt at any time.
     tmp = METRICS_CACHE_PATH.with_suffix(".tmp.parquet")
+    METRICS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(tmp, index=False)
     tmp.replace(METRICS_CACHE_PATH)
 
 
 def _load_cache() -> tuple[pd.DataFrame, datetime] | None:
+    pointer = METRICS_ROOT / "LATEST.json"
+    if pointer.exists():
+        try:
+            dataset_name = json.loads(pointer.read_text(encoding="utf-8"))["dataset"]
+            path = METRICS_ROOT / dataset_name / "screener_metrics.parquet"
+            built_at = datetime.fromisoformat(json.loads((METRICS_ROOT / dataset_name / "metadata.json").read_text(encoding="utf-8"))["built_at_utc"])
+            return pd.read_parquet(path), built_at
+        except (OSError, ValueError, ImportError, KeyError, json.JSONDecodeError):
+            return None
     if not METRICS_CACHE_PATH.exists():
         return None
     modified = datetime.fromtimestamp(METRICS_CACHE_PATH.stat().st_mtime, tz=timezone.utc)
     try:
-        frame = pd.read_parquet(METRICS_CACHE_PATH)
+        return pd.read_parquet(METRICS_CACHE_PATH), modified
     except (OSError, ValueError, ImportError):
         return None
-    return frame, modified
 
 
 class ScreenerStore:
@@ -150,11 +184,4 @@ def query(payload) -> dict:
     start = (payload.page - 1) * payload.page_size
     page = frame.iloc[start:start + payload.page_size].copy()
     page = page.replace({np.nan: None})
-    return {
-        "total": total,
-        "page": payload.page,
-        "page_size": payload.page_size,
-        "rows": page.to_dict(orient="records"),
-        "available_filters": FILTERABLE,
-        "built_at": store.built_at.isoformat() if store.built_at else None,
-    }
+    return {"total": total, "page": payload.page, "page_size": payload.page_size, "rows": page.to_dict(orient="records"), "available_filters": FILTERABLE, "built_at": store.built_at.isoformat() if store.built_at else None}
