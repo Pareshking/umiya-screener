@@ -5,17 +5,34 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
+from .config import MIN_HISTORY
+
 
 def clean_prices(prices: pd.DataFrame) -> pd.DataFrame:
-    """Remove rows with excessive missing symbols and forward-fill ordinary gaps."""
+    """Preserve the trading-date index and tolerate per-stock missing values.
+
+    Missing exchange-wide dates are normally absent from the source entirely
+    (weekends/holidays), so they must not be manufactured or treated as a
+    failed data build. Likewise, a partial source gap for one stock must not
+    delete the trading date for every other stock.
+
+    We intentionally do not forward-fill prices here. Forward-filling can turn
+    a genuine stale-price/suspension gap into a false zero return and can
+    contaminate momentum, volatility and R². Individual metrics decide how
+    many valid observations they require.
+    """
     if prices.empty:
         return prices.copy()
-    # A trading-day row is retained when at least 70% of the universe has a
-    # price. The previous implementation inverted this condition and could
-    # retain rows with 70% missing data, which could contaminate indicators.
-    min_observations = max(int(np.ceil(prices.shape[1] * 0.70)), 1)
-    cleaned = prices.loc[prices.notna().sum(axis=1) >= min_observations].copy()
-    return cleaned.ffill()
+    cleaned = prices.copy()
+    cleaned.index = pd.to_datetime(cleaned.index)
+    return cleaned.sort_index()
+
+
+def eligible_symbols(prices: pd.DataFrame, min_history: int = MIN_HISTORY) -> pd.Index:
+    """Return symbols with at least ``min_history`` valid price observations."""
+    if prices.empty:
+        return pd.Index([], dtype=object)
+    return prices.notna().sum(axis=0).loc[lambda s: s >= min_history].index
 
 
 def zscore(s: pd.Series, clip: float = 3.0) -> pd.Series:
@@ -40,18 +57,27 @@ def sharpe_r2(prices: pd.DataFrame, window: int) -> pd.DataFrame:
 
 
 def momentum_score(prices: pd.DataFrame, windows: Sequence[int] = (21, 63, 126, 189, 252), weights: Sequence[float] = (0.10, 0.30, 0.30, 0.20, 0.10)) -> pd.DataFrame:
-    """Cross-sectional weighted Z(Sharpe × R²) momentum score."""
+    """Cross-sectional weighted Z(Sharpe × R²) momentum score.
+
+    Stocks with at least 126 observations remain eligible. A longer lookback
+    may be unavailable; its contribution is zero rather than disqualifying
+    the stock from the screener.
+    """
     prices = clean_prices(prices)
     total = float(sum(weights)) or 1.0
     result = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
     valid_counts = prices.notna().sum()
+    eligible = valid_counts >= MIN_HISTORY
     for window, weight in zip(windows, weights):
         raw = sharpe_r2(prices, window)
+        # Do not reject a 126-day stock merely because a 189/252-day metric
+        # is unavailable. The missing component contributes zero.
         raw.loc[:, valid_counts < window] = np.nan
         mean = raw.mean(axis=1)
         std = raw.std(axis=1).replace(0, np.nan)
         z = raw.sub(mean, axis=0).div(std, axis=0).clip(-3, 3)
         result = result.add(z.fillna(0) * (weight / total))
+    result.loc[:, ~eligible] = np.nan
     return result
 
 
@@ -60,6 +86,9 @@ def technical_snapshot(close: pd.DataFrame, high: pd.DataFrame, low: pd.DataFram
     close, high, low, volume = map(clean_prices, (close, high, low, volume))
     latest = close.iloc[-1]
     out = pd.DataFrame(index=close.columns)
+    history_counts = close.notna().sum()
+    out["History Days"] = history_counts
+    out["Eligible"] = history_counts >= MIN_HISTORY
     out["CMP"] = latest
     for span in (50, 100, 200):
         ema = close.ewm(span=span, min_periods=max(20, span // 2)).mean().iloc[-1]
@@ -72,11 +101,16 @@ def technical_snapshot(close: pd.DataFrame, high: pd.DataFrame, low: pd.DataFram
     out["% From 52W High"] = (latest / high_52w - 1) * 100
     out["Within 20% of 52W High"] = out["% From 52W High"] >= -20
 
-    for window, label in ((63, "3M"), (126, "6M"), (189, "9M"), (252, "12M")):
+    # A stock with 126+ observations is eligible. If it lacks a full 12M
+    # history, 12M RoC is explicitly defined as zero per Umiya policy.
+    for window, label in ((21, "1M"), (63, "3M"), (126, "6M"), (189, "9M"), (252, "12M")):
+        values = pd.Series(np.nan, index=close.columns, dtype=float)
         if len(close) > window:
-            out[f"{label} Return"] = (latest / close.iloc[-window - 1] - 1) * 100
-        else:
-            out[f"{label} Return"] = np.nan
+            start = close.iloc[-window - 1]
+            values = (latest / start - 1) * 100
+        if label == "12M":
+            values = values.fillna(0.0)
+        out[f"{label} Return"] = values
 
     tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()]).groupby(level=0).max()
     atr = tr.rolling(14, min_periods=5).mean().iloc[-1]
