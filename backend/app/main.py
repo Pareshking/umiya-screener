@@ -9,12 +9,13 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.storage import ObjectStoreConfig, download_prefix, read_pointer
 from .schemas import ScreenerQuery
 from .service import FILTERABLE, MetricsCacheStale, MetricsCacheUnavailable, query, store
 
 ROOT = Path(__file__).resolve().parents[2]
 PRICE_ROOT = ROOT / "data_cache" / "price_history"
-app = FastAPI(title="Umiya Screener API", version="0.3.3")
+app = FastAPI(title="Umiya Screener API", version="0.4.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["*"])
 
 
@@ -22,10 +23,24 @@ def _cache_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=503, detail=str(exc))
 
 
-def _phase1_paths() -> tuple[Path, dict]:
+def _ensure_price_dataset() -> tuple[Path, dict]:
     pointer = PRICE_ROOT / "LATEST.json"
     if not pointer.exists():
-        raise HTTPException(status_code=503, detail="Price dataset is unavailable.")
+        try:
+            remote = ObjectStoreConfig.from_env()
+            prefix = read_pointer(remote, "pointers/latest-price-dataset.json")
+            dataset_name = prefix.rstrip("/").split("/")[-1]
+            target = PRICE_ROOT / dataset_name
+            if not target.exists():
+                tmp = PRICE_ROOT / f".{dataset_name}.tmp"
+                import shutil
+                shutil.rmtree(tmp, ignore_errors=True)
+                download_prefix(remote, prefix, tmp)
+                tmp.replace(target)
+            PRICE_ROOT.mkdir(parents=True, exist_ok=True)
+            pointer.write_text(json.dumps({"dataset": dataset_name}), encoding="utf-8")
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Price dataset is unavailable.") from exc
     try:
         dataset_name = json.loads(pointer.read_text(encoding="utf-8"))["dataset"]
         dataset = PRICE_ROOT / dataset_name
@@ -53,16 +68,7 @@ def metadata() -> dict:
         frame = store.get()
     except (MetricsCacheUnavailable, MetricsCacheStale) as exc:
         raise _cache_error(exc) from exc
-    return {
-        "universe": len(frame),
-        "universe_name": "NIFTY 750",
-        "source_counts": {str(k): int(v) for k, v in frame["Index"].value_counts().to_dict().items()},
-        "industries": sorted(frame["Industry"].dropna().astype(str).unique().tolist()),
-        "filters": FILTERABLE,
-        "built_at": store.built_at.isoformat() if store.built_at else None,
-        "market_as_of": str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None,
-        "data_contract": ["adj_close", "volume"],
-    }
+    return {"universe": len(frame), "universe_name": "NIFTY 750", "source_counts": {str(k): int(v) for k, v in frame["Index"].value_counts().to_dict().items()}, "industries": sorted(frame["Industry"].dropna().astype(str).unique().tolist()), "filters": FILTERABLE, "built_at": store.built_at.isoformat() if store.built_at else None, "market_as_of": str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None, "data_contract": ["adj_close", "volume"]}
 
 
 @app.post("/api/v1/screener/query")
@@ -117,7 +123,7 @@ def stock(symbol: str) -> dict:
 @app.get("/api/v1/stocks/{symbol}/chart")
 def stock_chart(symbol: str, days: int = Query(252, ge=20, le=2520)) -> dict:
     symbol = symbol.upper().replace(".NS", "")
-    dataset, metadata = _phase1_paths()
+    dataset, metadata = _ensure_price_dataset()
     try:
         close = pd.read_parquet(dataset / "adj_close.parquet", columns=[symbol])
         volume = pd.read_parquet(dataset / "volume.parquet", columns=[symbol])
