@@ -1,0 +1,1 @@
+R2 production repository secrets are configured. The next production action is the first real manual scheduled-data-refresh publication.
