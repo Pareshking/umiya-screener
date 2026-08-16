@@ -95,6 +95,11 @@ def download_prefix(store: ObjectStoreConfig, prefix: str, destination: Path) ->
     successfully and validates the required files. A zero-object prefix is
     rejected so a remote outage cannot look like a valid empty dataset.
     """
+    normalized = prefix.replace("\\", "/")
+    if not normalized.strip():
+        raise RuntimeError("Object-store prefix is empty")
+    root_name = normalized.lstrip("/").split("/", 1)[0]
+    prefix = validate_pointer_prefix(prefix, root_name)
     client = _client(store)
     destination = destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
