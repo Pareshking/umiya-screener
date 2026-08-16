@@ -1,0 +1,62 @@
+name: Yahoo row audit 2
+
+on:
+  push:
+    branches: [analysis/yahoo-row-audit2]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install audit dependencies
+        run: pip install --disable-pip-version-check yfinance pandas numpy
+      - name: Download raw Yahoo data and run V1 vs V2 audit
+        run: |
+          cat > /tmp/audit.py <<'PY'
+          import numpy as np
+          import pandas as pd
+          import yfinance as yf
+          symbols=['CUPID','STLTECH','LAURUSLABS','ATHERENERG','RRKABEL']; tickers=[s+'.NS' for s in symbols]
+          raw=yf.download(tickers,period='2y',auto_adjust=False,progress=False,group_by='column',threads=True)
+          close=raw['Close'].copy(); adj=raw['Adj Close'].copy()
+          close.columns=[str(c).replace('.NS','').upper() for c in close.columns]; adj.columns=[str(c).replace('.NS','').upper() for c in adj.columns]
+          close=close.sort_index(); adj=adj.sort_index()
+          def v1_clean(p):
+              threshold=max(int(p.shape[1]*.70),1); return p.loc[p.isna().sum(axis=1)<=threshold].copy().ffill()
+          def v2_clean(p):
+              out=p.copy(); out.index=pd.to_datetime(out.index).tz_localize(None); return out.sort_index()
+          v1,v2=v1_clean(close),v2_clean(adj)
+          rows=[]
+          for s in symbols:
+              a=v1[s].dropna(); b=v2[s].dropna()
+              for w in (21,63,126,189,252):
+                  rows.append({'symbol':s,'window':w,'v1_rows':len(a),'v2_rows':len(b),'v1_start_date':str(a.index[-w-1].date()) if len(a)>w else '','v2_start_date':str(b.index[-w-1].date()) if len(b)>w else '','v1_start_price':float(a.iloc[-w-1]) if len(a)>w else np.nan,'v2_start_price':float(b.iloc[-w-1]) if len(b)>w else np.nan,'v1_end_price':float(a.iloc[-1]) if len(a) else np.nan,'v2_end_price':float(b.iloc[-1]) if len(b) else np.nan,'v1_return_pct':float((a.iloc[-1]/a.iloc[-w-1]-1)*100) if len(a)>w else np.nan,'v2_return_pct':float((b.iloc[-1]/b.iloc[-w-1]-1)*100) if len(b)>w else np.nan})
+          pd.DataFrame(rows).to_csv('row_comparison.csv',index=False)
+          def rolling_r2(p,w,full=False):
+              logp=np.log(p.clip(lower=.01)); t=pd.Series(np.arange(len(logp),dtype=float),index=logp.index); return logp.rolling(w,min_periods=(w if full else max(int(w*.8),10))).corr(t)**2
+          def sr2(p,w,variant):
+              lr=np.log(p/p.shift(1).replace(0,np.nan)); ch=np.log(p/p.shift(w).replace(0,np.nan))
+              if variant=='v1':
+                  vol=lr.rolling(w,min_periods=max(int(w*.8),10)).std()*np.sqrt(w); return (ch/vol.replace(0,np.nan))*rolling_r2(p,w,False)
+              sd=lr.rolling(w,min_periods=w).std(); return (ch/sd.replace(0,np.nan)/np.sqrt(w))*rolling_r2(p,w,True)
+          calc=[]
+          for s in symbols:
+              for w in (21,63,126,189,252):
+                  av=sr2(v1[[s]],w,'v1').iloc[-1].get(s,np.nan) if len(v1)>w else np.nan; bv=sr2(v2[[s]],w,'v2').iloc[-1].get(s,np.nan) if len(v2)>w else np.nan
+                  calc.append({'symbol':s,'window':w,'v1_sharpe_x_r2':av,'v2_sharpe_x_r2':bv,'difference':bv-av})
+          pd.DataFrame(calc).to_csv('component_comparison.csv',index=False)
+          pd.concat({'v1_close_ffill':v1[symbols],'v2_adj_noffill':v2[symbols]},axis=1).to_csv('processed_price_series.csv')
+          print(pd.DataFrame(rows).to_string(index=False)); print(pd.DataFrame(calc).to_string(index=False))
+          PY
+          python /tmp/audit.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yahoo-row-audit-results-2
+          path: |
+            row_comparison.csv
+            component_comparison.csv
+            processed_price_series.csv
