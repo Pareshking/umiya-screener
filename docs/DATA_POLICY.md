@@ -62,10 +62,8 @@ Longer metrics may be unavailable for newer stocks. Missing longer-lookback comp
 
 Current policy:
 
-- 1M and 3M use available valid history when sufficient observations exist.
-- 6M is available with 126 valid observations.
-- 9M may be unavailable when sufficient history does not exist.
-- **12M RoC is explicitly defined as 0 when a full 12M history is unavailable.**
+- 1M, 3M, 6M and 9M returns are available only when their required observation window exists.
+- **12M Return remains unavailable (NaN) when 12M history is insufficient. It is never converted to a neutral 0% return.**
 - Missing components of the weighted momentum score contribute zero rather than removing the eligible stock.
 
 Any future change must be an explicit methodology decision, not an accidental implementation consequence.
@@ -79,7 +77,7 @@ Prohibited:
 - forward-filling prices or volume
 - silently treating an old stock price as current when it is outside the 3-day freshness limit
 - using each stock's own later date as the screener's market date
-- treating a missing 12M return as a positive/negative estimate
+- treating a missing long-lookback return as a neutral estimate
 - silently substituting unrelated symbols
 - silently replacing failed live market data with fake values
 
@@ -99,22 +97,28 @@ NSE constituent CSV endpoints can reject direct HTTP clients. The acquisition la
 
 A cached fallback is acceptable for resilience, but its use must be visible in dataset diagnostics/provenance.
 
-## 9. Universe validation
+## 9. NSE universe validation and dynamic constituent counts
 
-All five constituent sources must be present and parse successfully before publishing a new universe snapshot.
+The five official constituent files are the **source of truth for current membership**. The nominal index sizes are reference/baseline counts, not a requirement that the software always produce exactly those numbers.
 
-Expected source counts:
+Current baselines:
 
-| Index | Expected |
+| Index | Baseline |
 |---|---:|
 | Nifty 50 | 50 |
 | Nifty Next 50 | 50 |
 | Nifty Midcap 150 | 150 |
 | Nifty Smallcap 250 | 250 |
 | Nifty Microcap 250 | 250 |
-| **Total intended** | **750** |
+| **Nominal combined universe** | **750** |
 
-Duplicates must be reported explicitly. The Phase 1 build requires exactly 750 unique symbols; it must never silently truncate an oversized universe to force a count of 750.
+Legitimate changes in security count must be accepted and recorded as a warning. For example, NSE's methodology allows an additional security such as a DVR to make the security count differ from the nominal company count. The system therefore does **not** truncate an oversized universe or fail merely because a source has 51 instead of 50 securities.
+
+At the same time, the pipeline protects against malformed/truncated downloads. Each source must contain at least 80% of its normal baseline count. A source below that floor is treated as a structural/source failure and the build is rejected rather than publishing an incomplete universe.
+
+Duplicates across the five source files are reported explicitly and deduplicated by symbol for the canonical combined universe.
+
+The final combined universe must still contain at least 700 unique symbols. The actual unique count is recorded in dataset metadata and may differ from 750.
 
 ## 10. Publication rule
 
