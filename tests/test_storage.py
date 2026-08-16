@@ -1,6 +1,6 @@
 import pytest
 
-from src.storage import ObjectStoreConfig
+from src.storage import ObjectStoreConfig, validate_pointer_prefix
 
 
 def test_storage_config_requires_credentials(monkeypatch):
@@ -19,3 +19,15 @@ def test_storage_config_reads_environment(monkeypatch):
     cfg = ObjectStoreConfig.from_env()
     assert cfg.bucket == "umiya"
     assert cfg.region == "auto"
+
+
+def test_pointer_target_must_stay_in_expected_namespace():
+    assert validate_pointer_prefix("metrics/dataset_20260816", "metrics") == "metrics/dataset_20260816"
+    with pytest.raises(RuntimeError):
+        validate_pointer_prefix("datasets/../secrets", "metrics")
+    with pytest.raises(RuntimeError):
+        validate_pointer_prefix("/metrics/../secrets", "metrics")
+    with pytest.raises(RuntimeError):
+        validate_pointer_prefix("other/dataset", "metrics")
+    with pytest.raises(RuntimeError):
+        validate_pointer_prefix(r"metrics\\..\\secrets", "metrics")
