@@ -1,11 +1,10 @@
 import json
-from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
 
 from src.data import eligible_symbols
-from src.storage import publish_pointer
+from src.storage import ObjectStoreConfig, publish_pointer
 
 
 def test_price_volume_freshness_is_checked_separately():
@@ -27,15 +26,14 @@ def test_price_only_eligibility_remains_backward_compatible():
 def test_publish_pointer_uses_read_pointer_json_contract(monkeypatch):
     captured = {}
 
-    class Body:
-        def encode(self, encoding):
-            return encoding
-
     class Client:
         def put_object(self, **kwargs):
             captured.update(kwargs)
 
     monkeypatch.setattr("src.storage._client", lambda store: Client())
-    publish_pointer(object(), "pointers/latest.json", "datasets/dataset_123")
+    store = ObjectStoreConfig("https://example.invalid", "test", "key", "secret")
+    publish_pointer(store, "pointers/latest.json", "datasets/dataset_123")
     assert json.loads(captured["Body"].decode("utf-8")) == {"prefix": "datasets/dataset_123"}
     assert captured["ContentType"] == "application/json"
+    assert captured["Bucket"] == "test"
+    assert captured["Key"] == "pointers/latest.json"
