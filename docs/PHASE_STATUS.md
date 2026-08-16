@@ -54,20 +54,32 @@ Validated:
 See `docs/PHASE6_STATUS.md` for the detailed benchmark and acceptance record.
 
 ## Phase 7 — Production operational hardening
-**IMPLEMENTED — production acceptance pending.**
+**ACCEPTANCE — implementation and automated production gates passed.**
 
-7A–7F implementation is complete on the `phase7-hardening` branch:
+7A–7F are implemented and merged to `main`.
+
+Validated:
 
 - liveness/readiness separation and freshness visibility
 - request correlation IDs and API no-store policy
-- R2/local recovery safeguards and path safety
+- R2/local recovery safeguards and object-store path safety
 - explicit 24-hour stale-data policy
 - post-refresh production readiness smoke
 - request-size and security hardening
-- CodeQL/dependency-review automation
+- Dependabot + CodeQL security automation
 - recovery/failure tests and explicit frontend degraded state
+- final merged-commit validation passed
+- final merged-commit production smoke passed, including liveness/readiness/health, metadata, query/search/sort, stock detail, charts, export, CORS and frontend HTTP availability
+- Vercel deployment status reported successful
 
-See `docs/PHASE7_STATUS.md` for the acceptance checklist.
+See `docs/PHASE7_STATUS.md` for the remaining manual acceptance gates.
+
+### Remaining Phase 7 gates
+
+- Manual browser/mobile walkthrough of READY/DEGRADED UI states
+- Observation of one normal scheduled refresh completing successfully without an invalid R2 pointer advance
+
+These are operational acceptance/observation gates, not pending implementation work.
 
 ## Phase 8 — Future Umiya modules
 Deferred until the Screener remains stable and production-quality after operational hardening.
