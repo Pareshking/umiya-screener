@@ -14,26 +14,26 @@ jobs:
           python-version: '3.12'
       - name: Install audit dependencies
         run: pip install --disable-pip-version-check yfinance pandas numpy requests
-      - name: Full 750-stock V1 vs V2 audit
+      - name: Full universe V1 vs V2 audit
         run: |
           cat > /tmp/audit.py <<'PY'
-          import json
-          import numpy as np
-          import pandas as pd
-          import yfinance as yf
-          from src.data import load_universe
-          universe = load_universe()
-          symbols = universe['Symbol'].astype(str).str.upper().tolist()
-          print('UNIVERSE', len(symbols))
+          import io, json
+          import numpy as np, pandas as pd, requests, yfinance as yf
+          
+          url='https://niftyindices.com/IndexConstituent/ind_niftytotalmarket_list.csv'
+          headers={'User-Agent':'Mozilla/5.0','Accept':'text/csv,text/plain,*/*'}
+          r=requests.get(url,headers=headers,timeout=30); r.raise_for_status()
+          u=pd.read_csv(io.BytesIO(r.content)); u.columns=[str(c).strip() for c in u.columns]
+          sc=next(c for c in u.columns if c.lower() in {'symbol','ticker'})
+          symbols=u[sc].astype(str).str.strip().str.upper().loc[lambda s:~s.str.startswith('DUMMY')].drop_duplicates().tolist()
+          print('TOTAL MARKET UNIVERSE',len(symbols))
           tickers=[s+'.NS' for s in symbols]
           raw=yf.download(tickers,period='2y',auto_adjust=False,actions=False,progress=False,group_by='column',threads=True)
           close=raw['Close'].copy(); adj=raw['Adj Close'].copy()
-          close.columns=[str(c).replace('.NS','').upper() for c in close.columns]
-          adj.columns=[str(c).replace('.NS','').upper() for c in adj.columns]
+          close.columns=[str(c).replace('.NS','').upper() for c in close.columns]; adj.columns=[str(c).replace('.NS','').upper() for c in adj.columns]
           close=close.reindex(columns=symbols).sort_index(); adj=adj.reindex(columns=symbols).sort_index()
           def v1_clean(p):
-              threshold=max(int(p.shape[1]*.70),1)
-              return p.loc[p.isna().sum(axis=1)<=threshold].copy().ffill()
+              threshold=max(int(p.shape[1]*.70),1); return p.loc[p.isna().sum(axis=1)<=threshold].copy().ffill()
           def v2_clean(p):
               out=p.copy(); out.index=pd.to_datetime(out.index).tz_localize(None); return out.sort_index()
           v1=v1_clean(close); v2=v2_clean(adj)
@@ -43,41 +43,35 @@ jobs:
               return lp.rolling(w,min_periods=minp).corr(t)**2
           def sr2(p,w,v1mode):
               lr=np.log(p/p.shift(1).replace(0,np.nan)); ch=np.log(p/p.shift(w).replace(0,np.nan))
-              minp=max(int(w*.8),10) if v1mode else w
-              vol=lr.rolling(w,min_periods=minp).std()*np.sqrt(w)
-              return (ch/vol.replace(0,np.nan))*r2(p,w,minp)
-          def components(p,v1mode):
-              valid=p.notna().sum(); out={}
-              for w in windows:
+              mp=max(int(w*.8),10) if v1mode else w
+              vol=lr.rolling(w,min_periods=mp).std()*np.sqrt(w)
+              return (ch/vol.replace(0,np.nan))*r2(p,w,mp)
+          def calc(p,v1mode,min_history):
+              valid=p.notna().sum(); rawz={}; score=pd.Series(0.0,index=p.columns)
+              for w,wt in zip(windows,weights):
                   raw=sr2(p,w,v1mode); raw.loc[:,valid<w]=np.nan
-                  mean=raw.mean(axis=1); std=raw.std(axis=1).replace(0,np.nan)
-                  z=raw.sub(mean,axis=0).div(std,axis=0).clip(-3,3)
-                  out[w]=(raw.iloc[-1],z.iloc[-1])
-              return out
-          c1=components(v1,True); c2=components(v2,False)
-          scores={}
-          for label,c in [('V1',c1),('V2',c2)]:
-              s=pd.Series(0.0,index=symbols)
-              for w,wt in zip(windows,weights): s=s.add(c[w][1].fillna(0)*wt)
-              scores[label]=s
-          cmp=pd.DataFrame({'V1_score':scores['V1'],'V2_score':scores['V2']})
+                  z=raw.sub(raw.mean(axis=1),axis=0).div(raw.std(axis=1).replace(0,np.nan),axis=0).clip(-3,3)
+                  rawz[w]=(raw.iloc[-1],z.iloc[-1]); score=score.add(z.iloc[-1].fillna(0)*wt)
+              score.loc[valid<min_history]=np.nan
+              return score,rawz,valid
+          s1,c1,n1=calc(v1,True,63); s2,c2,n2=calc(v2,False,126)
+          cmp=pd.DataFrame({'V1_score':s1,'V2_score':s2,'V1_history':n1,'V2_history':n2})
           cmp['V1_rank']=cmp.V1_score.rank(ascending=False,method='min'); cmp['V2_rank']=cmp.V2_score.rank(ascending=False,method='min')
           cmp['rank_delta']=cmp.V2_rank-cmp.V1_rank; cmp['score_delta']=cmp.V2_score-cmp.V1_score
           cmp.to_csv('full_rank_comparison.csv')
+          print('\nVALID COUNTS',int(cmp.V1_score.notna().sum()),int(cmp.V2_score.notna().sum()))
           print('\nTOP V1\n',cmp.sort_values('V1_rank').head(20).to_string())
           print('\nTOP V2\n',cmp.sort_values('V2_rank').head(20).to_string())
           print('\nCUPID\n',cmp.loc['CUPID'].to_string())
           detail=[]
           for label,c in [('V1',c1),('V2',c2)]:
-              for w,wt in zip(windows,weights):
-                  detail.append({'system':label,'window':w,'raw':c[w][0].get('CUPID',np.nan),'z':c[w][1].get('CUPID',np.nan),'weighted':c[w][1].get('CUPID',np.nan)*wt})
+              for w,wt in zip(windows,weights): detail.append({'system':label,'window':w,'raw':c[w][0].get('CUPID',np.nan),'z':c[w][1].get('CUPID',np.nan),'weighted':c[w][1].get('CUPID',np.nan)*wt})
           pd.DataFrame(detail).to_csv('cupid_component_comparison.csv',index=False)
-          five=['CUPID','STLTECH','LAURUSLABS','ATHERENERG','RRKABEL']; rows=[]
-          for s in five:
-              a=v1[s].dropna(); b=v2[s].dropna()
-              for w in windows:
-                  rows.append({'symbol':s,'window':w,'v1_start_date':a.index[-w-1].date(),'v2_start_date':b.index[-w-1].date(),'v1_start_price':a.iloc[-w-1],'v2_start_price':b.iloc[-w-1],'v1_return':a.iloc[-1]/a.iloc[-w-1]-1,'v2_return':b.iloc[-1]/b.iloc[-w-1]-1})
-          pd.DataFrame(rows).to_csv('five_row_comparison.csv',index=False)
+          # Isolate the effect of each major change while holding everything else constant.
+          variants=[]
+          for name,p,vm,mh in [('V1',v1,True,63),('V1_no_ffill',close,False,63),('Adj_ffill',adj.copy().ffill(),False,63),('V2',v2,False,126)]:
+              s,cc,n=calc(p,vm,mh); variants.append((name,s.loc['CUPID'],s.rank(ascending=False,method='min').loc['CUPID'],n.loc['CUPID']))
+          pd.DataFrame(variants,columns=['variant','CUPID_score','CUPID_rank','history']).to_csv('cupid_isolation.csv',index=False)
           with open('audit_summary.json','w') as f: json.dump({'universe':len(symbols),'v1_valid':int(cmp.V1_score.notna().sum()),'v2_valid':int(cmp.V2_score.notna().sum()),'cupid':cmp.loc['CUPID'].to_dict()},f,default=str,indent=2)
           PY
           python /tmp/audit.py
@@ -87,5 +81,5 @@ jobs:
           path: |
             full_rank_comparison.csv
             cupid_component_comparison.csv
-            five_row_comparison.csv
+            cupid_isolation.csv
             audit_summary.json
