@@ -1,0 +1,1 @@
+Production refresh receives R2 credentials from GitHub Actions secrets at runtime.
