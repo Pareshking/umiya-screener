@@ -15,7 +15,7 @@ Recommended initial policy:
 
 The 30-day retention is a proposed starting point, not yet a verified production setting. Confirm that the active/latest dataset remains protected by the publication/retention design.
 
-Cloudflare documents lifecycle rules as bucket-level configuration and notes that objects are typically removed within 24 hours after their lifecycle expiration takes effect. citeturn0search0
+Cloudflare's current R2 lifecycle documentation describes lifecycle rules as bucket-level configuration and notes that objects are typically removed within 24 hours after the expiration takes effect.
 
 ## APCOTEXIND clarification
 
