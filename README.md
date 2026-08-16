@@ -2,7 +2,7 @@
 
 A clean, performance-first rebuild of the Umiya NSE quantitative screener.
 
-> **Current status: Phase 5 is in final housekeeping. Phase 6 has not formally started.**
+> **Current status: Phase 0–7 complete. Phase 8 is active.**
 
 The old `Pareshking/Umiya` repository is **reference-only and must never be modified**. It is used for quantitative methodology, validated formulas, research requirements and product behaviour—not as an architectural template.
 
@@ -11,7 +11,9 @@ The old `Pareshking/Umiya` repository is **reference-only and must never be modi
 - Frontend: https://pareshpatel.vercel.app/
 - API: https://umiya-screener-api.onrender.com/
 - API docs: `https://umiya-screener-api.onrender.com/docs`
-- Production health: `/api/v1/health`
+- Health: `/api/v1/health`
+- Liveness: `/api/v1/live`
+- Readiness: `/api/v1/ready`
 - Production smoke workflow: `.github/workflows/production-smoke.yml`
 - Scheduled data refresh: `.github/workflows/data-refresh.yml`
 
@@ -22,9 +24,9 @@ Official NSE constituents
         ↓
 Yahoo Finance Adj Close + Volume
         ↓
-Phase 1 validated 10-year dataset
+Validated 10-year dataset
         ↓
-Phase 2 quantitative metrics
+Quantitative metrics
         ↓
 Validation / provenance / versioning
         ↓
@@ -39,11 +41,11 @@ The frontend never performs market-wide calculations. Filter, search, sort and p
 
 ## Canonical universe
 
-NSE 750 is the combination of Nifty 50, Nifty Next 50, Nifty Midcap 150, Nifty Smallcap 250 and Nifty Microcap 250: **750 unique stocks**.
+The project targets the NSE 750 universe, formed from Nifty 50, Nifty Next 50, Nifty Midcap 150, Nifty Smallcap 250 and Nifty Microcap 250. The live constituent count **must not be hard-coded to exactly 750**; legitimate index membership and corporate-action changes are tolerated while catastrophic incompleteness is rejected.
 
 ## Canonical market-data contract
 
-Production Phase 1 data is limited to:
+Production market data is limited to:
 
 - Yahoo Finance Adjusted Close
 - Yahoo Finance Volume
@@ -51,12 +53,17 @@ Production Phase 1 data is limited to:
 - common market `as_of` date
 - minimum 126 valid observations
 - maximum 3-calendar-day freshness
+- price and volume freshness validated independently
 
 Do not silently add OHLC fields. Metrics requiring High/Low must be explicitly redesigned and documented.
+
+Missing long-history data remains unavailable; the system must never manufacture missing returns as 0%.
 
 ## Current API
 
 ```text
+GET  /api/v1/live
+GET  /api/v1/ready
 GET  /api/v1/health
 GET  /api/v1/screener/metadata
 POST /api/v1/screener/query
@@ -73,6 +80,13 @@ The production frontend is API-driven and includes the Screener table, search, f
 
 GitHub Actions builds and validates new datasets before publication. Published datasets are immutable. Latest-pointer objects select the active dataset. A failed build must never replace the previous good pointer.
 
+The production R2 lifecycle policy is verified as:
+
+- `datasets/` → 30-day historical retention
+- `metrics/` → 30-day historical retention
+- `pointers/` → protected from the historical expiration rule
+- incomplete multipart uploads → 7-day cleanup
+
 Production GitHub Actions R2 secrets:
 
 - `S3_ENDPOINT_URL`
@@ -82,19 +96,9 @@ Production GitHub Actions R2 secrets:
 
 Never commit these values.
 
-## Phase 5 final housekeeping
-
-Everything required for production deployment and runtime integration has been completed. **Exactly one Phase 5 item remains:**
-
-> **Verify/configure the Cloudflare R2 object lifecycle/retention policy so old immutable dataset versions do not accumulate indefinitely.**
-
-The lifecycle policy must protect the active/latest pointers. It should apply to immutable historical dataset prefixes such as `datasets/` and `metrics/`, not to `pointers/`.
-
-The current repository does not itself prove that the Cloudflare bucket lifecycle rule is configured; this is an external bucket-level configuration and must be verified in the R2 account.
-
 ## APCOTEXIND test clarification
 
-`APCOTEXIND.NS` was **not intended to be shown in the production frontend**. It is only a newly-injected-stock/data-pipeline test fixture. The test must not be described as an end-to-end frontend-stock test, and the canonical production NSE 750 universe must not be altered merely to display this symbol.
+`APCOTEXIND.NS` is a newly-injected-stock/data-pipeline test fixture. It is **not intended to be shown in the production frontend** and must not be permanently added to the canonical universe merely to make a UI test pass.
 
 ## Phase history
 
@@ -105,15 +109,25 @@ The current repository does not itself prove that the Cloudflare bucket lifecycl
 | 2 | Quantitative engine / metrics | ✅ Complete |
 | 3 | Query API + screener UX | ✅ Complete |
 | 4 | Stock detail + charts | ✅ Complete |
-| 5 | Production deployment / R2 / CI / hardening | **Final housekeeping only** |
-| 6 | Real-world validation, performance and bottleneck work | **Next — not started** |
-| 7 | Production hardening / observability / recovery | Planned |
+| 5 | Production deployment / R2 / CI / hardening | ✅ Complete |
+| 6 | Production measurement, correctness and performance | ✅ Complete |
+| 7 | Production operational hardening | ✅ Complete |
+| 8 | Production Screener evolution / edge-case audit | **ACTIVE** |
 
-## Phase 6 starting point
+## Phase 8
 
-Only after the R2 lifecycle/retention item is verified/configured should Phase 5 be formally closed and Phase 6 begin.
+Phase 8 is **not a redesign**. First audit the deployed Screener for concrete UX, correctness, resilience and API issues, then fix evidence-backed defects.
 
-Phase 6 then starts with measurement: initial load, API query/filter/search/sort latency, stock detail/chart latency, mobile UX, cold-start/R2 bootstrap and real-world data freshness.
+Planned work:
+
+- **8A:** production desktop/mobile UX audit
+- **8B:** correctness and edge-case audit
+- **8C:** data pipeline resilience review
+- **8D:** API quality and contract review
+- **8E:** evidence-based performance/frontend polish
+- **8F:** documentation and release discipline
+
+Start with **8A + 8B together**. Do not add unrelated features until the audit identifies a concrete need.
 
 ## Working rules
 
@@ -126,14 +140,19 @@ Phase 6 then starts with measurement: initial load, API query/filter/search/sort
 - Do not add other Umiya tabs until the Screener is production-quality.
 - Preserve methodology only after verifying the original Umiya implementation.
 - Keep data pipeline, quantitative engine, API and frontend independently testable.
+- Update implementation, tests and documentation together for contract changes.
 
 ## Documentation map
 
-- `docs/PROJECT_CONTEXT.md` — current project state and decisions
+- `docs/PROJECT_CONTEXT.md` — current project context and guardrails
 - `docs/ARCHITECTURE.md` — system boundaries and data flow
-- `docs/PHASE_STATUS.md` — phase history and exact next gates
+- `docs/PHASE_STATUS.md` — current phase state
+- `docs/NEXT_AUDIT.md` — Phase 8 work plan
 - `docs/DATA_CONTRACT.md` — canonical data and freshness rules
 - `docs/OPERATIONS_RUNBOOK.md` — deployment, refresh, recovery and secrets
 - `docs/VALIDATION.md` — test strategy and production audit
-- `docs/PHASE5_CHECKLIST.md` — Phase 5 final checklist
-- `docs/NEXT_AUDIT.md` — next required action
+- `docs/PRODUCTION_STORAGE.md` — R2 publication/storage design
+- `docs/PHASE5_STATUS.md` — Phase 5 closure record
+- `docs/PHASE6_STATUS.md` — Phase 6 benchmark/acceptance record
+- `docs/PHASE7_STATUS.md` — Phase 7 acceptance record
+- `docs/HANDOVER_PROMPT.md` — continuation prompt for future AI sessions
