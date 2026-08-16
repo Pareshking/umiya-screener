@@ -4,7 +4,7 @@
 **Repository:** `Pareshking/umiya-screener`  
 **Branch:** `main`  
 **Scope:** Screener only  
-**Current phase:** Phase 8 complete
+**Current phase:** Phase 10 release candidate
 
 Copy the prompt below into a new AI chat when continuing this project.
 
@@ -27,6 +27,7 @@ You are taking over development of **Umiya Screener V2**. Work directly in `Pare
 9. `docs/PRODUCTION_AUDIT.md`
 10. `docs/PHASE5_STATUS.md`, `docs/PHASE5_CHECKLIST.md`, `docs/PHASE6_STATUS.md`, `docs/PHASE7_STATUS.md`
 11. `docs/PHASE8_PLAN.md` and `docs/PHASE8_AUDIT.md`
+12. `docs/PHASE9_RELEASE.md` and `docs/PHASE10_UI_UX.md`
 
 ### 2. Current production architecture
 
@@ -54,27 +55,36 @@ Production URLs:
 
 ### 3. Phase status
 
-**Phases 0–8 are complete.**
+**Phases 0–9 are complete. Phase 10 is a release candidate.**
 
-Phase 8 was an evidence-backed production Screener audit, not an architecture rewrite. It fixed concrete UX/correctness/resilience/API issues, added regression coverage, measured production behavior and synchronized the release documentation.
+Phase 10 is the product-facing UI/UX upgrade for both the Screener and individual stock research page. Source work is complete; final closure requires deployment of the latest `main` source to Vercel and human desktop/mobile acceptance.
 
-### 4. Phase 8 completed work
+### 4. Phase 10 completed work
 
-- stale-query race fixed with per-query `AbortController`;
-- degraded/data-unavailable state separated from ordinary request errors;
-- mobile filter search fixed;
-- saved-screen restoration hardened;
-- unsupported sorts now return HTTP 400;
-- pagination boundaries and numeric equality coercion fixed;
-- null/missing metrics remain unavailable;
-- R2 pointer traversal/namespace validation added;
-- repeated-refresh/idempotency regression coverage added;
-- constituent replacement/membership-change regression coverage added;
-- production payload sizes and repeated query latency measured;
-- deployed API smoke passed after the latest Phase 8 code checkpoint;
-- README, phase status, next-audit, audit and handover documents synchronized.
+- Screener visual hierarchy, spacing and typography refresh;
+- KPI/filter/chip/table/search/sort/column/export polish;
+- responsive tablet/mobile layouts;
+- mobile result cards, filter drawer and bottom navigation;
+- clearer loading, empty, error and degraded states;
+- individual stock research hero and signal hierarchy;
+- adjusted-close chart and range selector;
+- Momentum & Returns section;
+- Technical Structure section;
+- Research Context / dataset provenance;
+- responsive stock research layout;
+- consistent visual language across Screener and stock page.
 
-### 5. Canonical data contract — do not violate
+No quantitative methodology, API contract, server-side calculation or data architecture changes were introduced.
+
+### 5. Current Vercel status
+
+Vercel deployment capacity has recovered. A recent dashboard deployment reached **Ready** in 26 seconds, but it was the older `431feb7` commit (`fix: allow Vercel install without lockfile`). Do not use that deployment as the final Phase 10 UI review.
+
+Deploy the latest `main` commit once. Confirm it reaches Ready, then verify that the deployed build contains the current Phase 10 source.
+
+Do not repeatedly redeploy the old commit.
+
+### 6. Canonical data contract — do not violate
 
 - Yahoo Finance **Adjusted Close**
 - Yahoo Finance **Volume**
@@ -88,19 +98,21 @@ No High/Low/OHLC should be introduced silently.
 
 Missing long-history data must remain missing. Never fabricate unavailable returns as 0%.
 
-### 6. Universe policy
+### 7. Universe policy
 
 The project targets NSE 750, but **do not hard-code the live universe to exactly 750 rows**. Legitimate constituent-count changes and corporate-action/index membership changes are allowed. Catastrophic incompleteness must still be rejected.
 
-### 7. APCOTEXIND rule
+### 8. APCOTEXIND rule
 
 `APCOTEXIND.NS` is a data-pipeline/newly-injected-stock test fixture. It is **not a production frontend stock test**. Do not permanently add it to the production universe merely to make it visible in the UI.
 
-### 8. Storage/publication rules
+### 9. Storage/publication rules
 
 Datasets are immutable. The latest pointer selects the active dataset. Upload and validate the immutable dataset before advancing the pointer. If a new build fails, the previous good pointer must remain usable.
 
-### 9. Performance rules
+The production R2 lifecycle policy was manually verified as OK on 2026-08-16: datasets and metrics retain historical versions for 30 days, pointers are protected, and incomplete multipart uploads are cleaned after 7 days.
+
+### 10. Performance rules
 
 Do not put expensive financial calculations into React/Next.js. Do not rebuild the full universe when a user changes a filter.
 
@@ -110,9 +122,7 @@ Preferred fast path:
 versioned metrics → API filter/sort/search → small JSON → frontend render
 ```
 
-Latest Phase 8 production smoke measured query p50 120 ms / p95 247 ms. Do not optimize further without new evidence.
-
-### 10. Testing rules
+### 11. Testing rules
 
 Before declaring a future change complete:
 
@@ -120,9 +130,10 @@ Before declaring a future change complete:
 - run frontend build when frontend code changes;
 - run relevant data-contract tests;
 - run production smoke when production-facing behavior changes;
-- inspect actual GitHub Actions results.
+- inspect actual GitHub Actions results;
+- for Phase 10, perform real browser/device review before claiming UI/UX completion.
 
-### 11. Repository boundaries
+### 12. Repository boundaries
 
 Do not:
 
@@ -135,11 +146,9 @@ Do not:
 - weaken data validation;
 - silently change quantitative methodology or data contract.
 
-### 12. Next-work rule
+### 13. Phase 10 closure rule
 
-Phase 8 is closed. Do not reopen the audit or redesign the application unless a new production defect, measured performance problem or explicit product requirement justifies it.
-
-The repository cannot independently perform a human visual walkthrough on a real desktop/mobile browser/device; do not claim that observation was completed unless a human actually performs it.
+Do not mark Phase 10 complete merely because source code and CI are green. The latest `main` source must first be deployed successfully to Vercel, and the user must perform a real desktop/mobile review of both the Screener and individual stock page. Any final changes should then be evidence-based and revalidated.
 
 For future work:
 
