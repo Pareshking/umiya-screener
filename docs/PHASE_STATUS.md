@@ -26,7 +26,7 @@ Production integration is in place: GitHub Actions refresh, Cloudflare R2 immuta
 
 Validated:
 
-- Python test suite: **50 passed** at latest code-hardening checkpoint
+- Python test suite: **50 passed** at latest Phase 5/6 checkpoint
 - Frontend build: **passed**
 - 10-year Yahoo Adj Close + Volume validation: **passed**
 - Real current-universe Phase 2 metric validation: **passed**
@@ -54,11 +54,20 @@ Validated:
 See `docs/PHASE6_STATUS.md` for the detailed benchmark and acceptance record.
 
 ## Phase 7 — Production operational hardening
-**ACTIVE — started 2026-08-16.**
+**IMPLEMENTED — production acceptance pending.**
 
-Focus: observability/readiness, failure containment, stale-data policy, scheduled-operation reliability, security/abuse resistance and disaster/recovery testing.
+7A–7F implementation is complete on the `phase7-hardening` branch:
 
-See `docs/PHASE7_STATUS.md` for the checklist.
+- liveness/readiness separation and freshness visibility
+- request correlation IDs and API no-store policy
+- R2/local recovery safeguards and path safety
+- explicit 24-hour stale-data policy
+- post-refresh production readiness smoke
+- request-size and security hardening
+- CodeQL/dependency-review automation
+- recovery/failure tests and explicit frontend degraded state
+
+See `docs/PHASE7_STATUS.md` for the acceptance checklist.
 
 ## Phase 8 — Future Umiya modules
 Deferred until the Screener remains stable and production-quality after operational hardening.

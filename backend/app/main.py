@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.storage import ObjectStoreConfig, download_prefix, read_pointer
+from .operational import OperationalMiddleware
 from .schemas import ScreenerQuery
 from .service import FILTERABLE, MetricsCacheStale, MetricsCacheUnavailable, query, store
 
@@ -18,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PRICE_ROOT = ROOT / "data_cache" / "price_history"
 app = FastAPI(title="Umiya Screener API", version="0.4.1")
 origins = [item.strip() for item in os.getenv("ALLOWED_ORIGINS", "https://pareshpatel.vercel.app").split(",") if item.strip()]
+app.add_middleware(OperationalMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["*"])
 
 # Small per-process chart cache. The production dataset is immutable, so caching
@@ -114,14 +116,33 @@ def warm_price_dataset() -> None:
         pass
 
 
+@app.get("/api/v1/live")
+def live() -> dict:
+    """Liveness probe: process is running; no dataset dependency."""
+    return {"status": "alive"}
+
+
+@app.get("/api/v1/ready")
+def ready() -> dict:
+    """Readiness probe: API is ready only when a fresh metrics dataset is usable."""
+    try:
+        frame = store.get()
+    except (MetricsCacheUnavailable, MetricsCacheStale) as exc:
+        raise HTTPException(status_code=503, detail={"status": "not_ready", "reason": str(exc)}) from exc
+    built_at = store.built_at.isoformat() if store.built_at else None
+    market_as_of = str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None
+    return {"status": "ready", "dataset_ready": True, "rows": len(frame), "built_at": built_at, "market_as_of": market_as_of, "data_contract": ["adj_close", "volume"]}
+
+
 @app.get("/api/v1/health")
 def health() -> dict:
     try:
         store.get()
-        ready, detail = True, None
+        ready_state, detail = True, None
     except (MetricsCacheUnavailable, MetricsCacheStale) as exc:
-        ready, detail = False, str(exc)
-    return {"status": "ok" if ready else "degraded", "dataset_ready": ready, "detail": detail, "built_at": store.built_at.isoformat() if store.built_at else None}
+        ready_state, detail = False, str(exc)
+    built_at = store.built_at.isoformat() if store.built_at else None
+    return {"status": "ok" if ready_state else "degraded", "dataset_ready": ready_state, "detail": detail, "built_at": built_at, "max_metrics_age_hours": 24}
 
 
 @app.get("/api/v1/screener/metadata")
@@ -185,8 +206,6 @@ def stock(symbol: str) -> dict:
 @app.get("/api/v1/stocks/{symbol}/chart")
 def stock_chart(symbol: str, days: int = Query(252, ge=20, le=2520)) -> dict:
     symbol = symbol.upper().replace(".NS", "")
-    # Keep chart access consistent with stock-detail access: a chart must not
-    # expose a symbol that is outside the current eligible screener universe.
     try:
         frame = store.get()
     except (MetricsCacheUnavailable, MetricsCacheStale) as exc:
