@@ -36,6 +36,18 @@ jobs:
       - name: Build screener metrics
         run: python scripts/build_metrics.py
 
+      - name: Audit canonical momentum rows
+        run: python scripts/audit_momentum_data.py | tee momentum_audit.json
+
+      - name: Publish audit report to workflow summary
+        shell: bash
+        run: |
+          echo '## Momentum data audit' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Read-only audit of the canonical dataset used by the metrics build.' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat momentum_audit.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Validate generated datasets
         run: python -m pytest tests -q
 
