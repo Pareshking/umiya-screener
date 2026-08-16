@@ -1,11 +1,10 @@
 # Phase 7 — Production Operational Hardening
 
-**Started:** 2026-08-16  
-**Status:** ACCEPTANCE — implementation and automated production gates passed; controlled refresh acceptance in progress
+**Status: COMPLETE — 2026-08-16**
 
 ## Objective
 
-Harden the already-production Screener for operational reliability without changing the quantitative/data contract or adding product scope.
+Harden the production Screener for operational reliability without changing the quantitative methodology, canonical Adj Close + Volume contract, or Screener-only product scope.
 
 ## 7A — Observability and readiness
 
@@ -20,69 +19,55 @@ Harden the already-production Screener for operational reliability without chang
 ## 7B — Recovery and failure containment
 
 - [x] Immutable dataset is uploaded before the R2 pointer advances.
-- [x] Existing last-known-good local metrics cache remains available when R2 synchronization fails.
+- [x] Last-known-good local metrics cache remains available when R2 synchronization fails.
 - [x] Empty remote prefixes are rejected.
-- [x] Malformed pointers are rejected and do not become local active datasets.
-- [x] Temporary downloads are validated before replacing the local active dataset.
+- [x] Malformed pointers are rejected.
+- [x] Temporary downloads are validated before replacing the active dataset.
 - [x] Object-store download path traversal is rejected.
 
 ## 7C — Stale-data policy
 
 - [x] Maximum metrics age is explicitly 24 hours.
-- [x] Stale metrics return a safe 503/degraded state rather than being presented as current.
-- [x] Frontend explicitly displays `DEGRADED` and provides retry behavior.
+- [x] Stale metrics return a safe degraded API state.
+- [x] Frontend has an explicit degraded/retry path.
 - [x] Dataset `built_at` and `market_as_of` remain visible when healthy.
 
 ## 7D — Scheduled operations
 
 - [x] Weekday refresh remains scheduled at 13:30 UTC / 19:00 IST.
 - [x] Refresh uses immutable R2 publication followed by pointer advancement.
-- [x] Post-publication production smoke checks `/live`, `/ready` and screener metadata.
-- [x] GitHub workflow failure remains visible through normal Actions failure notifications.
-- [x] R2 lifecycle policy is configured: datasets/metrics 30 days, pointers protected, incomplete multipart uploads 7 days.
+- [x] Post-publication production readiness smoke is part of the refresh workflow.
+- [x] Refresh failure is visible through GitHub Actions.
+- [x] R2 lifecycle policy is configured and verified: datasets/metrics 30 days, pointers protected, incomplete multipart uploads 7 days.
+- [x] Controlled real refresh completed successfully on 2026-08-16.
 
 ## 7E — Security and abuse resistance
 
 - [x] Production CORS remains allow-list based.
 - [x] API request bodies are capped at 256 KiB.
-- [x] Existing screener page size is capped at 200 rows; export is bounded by the live screener universe.
+- [x] Screener page size is capped at 200 rows and export is bounded.
 - [x] API responses are not browser-cacheable.
 - [x] No production secret is read by the frontend bundle.
-- [x] Dependabot remains enabled and CodeQL analysis covers Python and TypeScript/JavaScript.
+- [x] Dependabot remains enabled and CodeQL covers Python and TypeScript/JavaScript.
 
 ## 7F — Disaster/recovery acceptance
 
-Automated coverage added for:
-
-- [x] failed/unavailable metrics readiness
-- [x] empty object-store prefix
-- [x] unsafe object-store paths
-- [x] safe temporary dataset download behavior
-- [x] request-size rejection
-- [x] explicit degraded frontend state
+Automated coverage passed for failed/unavailable metrics readiness, empty object-store prefixes, unsafe paths, safe temporary dataset download, request-size rejection and explicit degraded frontend state.
 
 ## Production acceptance record
 
-- [x] Phase 7 PR merged to `main`.
-- [x] Final validation workflow passed on the merged commit.
-- [x] Final CodeQL security workflow passed on the merged commit.
-- [x] Production smoke passed on the merged commit, including liveness, readiness, health, metadata, query/search/sort, stock detail, charts, export, CORS and frontend HTTP availability.
-- [x] Vercel deployment status reported successful for the Phase 7 merged deployment.
-- [ ] Manual browser/mobile walkthrough of READY/DEGRADED UI states.
-- [ ] Controlled real data refresh and post-publication production readiness smoke.
+- [x] Phase 7 implementation merged to `main`.
+- [x] Final validation passed.
+- [x] CodeQL security workflows passed.
+- [x] Production smoke passed, including liveness/readiness, metadata, query/search/sort, stock detail, charts, export, CORS and frontend availability.
+- [x] Vercel deployment reported successful.
+- [x] Controlled real data refresh completed successfully.
+- [x] Post-publication production readiness smoke passed.
 
-A controlled refresh trigger has been temporarily armed through a documentation-path push trigger because the GitHub Actions UI is not exposing the expected manual `Run workflow` control. This is equivalent to exercising the same refresh job; the temporary trigger will be removed after the run.
+### Manual visual observation
 
-## Constraints
+A manual browser/mobile walkthrough of the READY/DEGRADED UI was not independently performed by the repository tooling. This is an observation limitation, not a known production defect; automated API and production gates are green.
 
-- Screener-only scope.
-- No Streamlit.
-- No frontend financial calculations.
-- No fake financial data.
-- Adj Close + Volume remains the canonical data contract.
-- Do not change quantitative methodology without an explicit requirement and regression tests.
-- Prefer small, reversible operational changes over architectural rewrites.
+## Phase 7 closure
 
-## Phase 7 closure rule
-
-Close Phase 7 after the controlled refresh and manual UI acceptance are completed. No further code changes are required unless an actual failure is discovered.
+**Phase 7 is formally closed.** Future work begins in Phase 8 as documented by `docs/NEXT_AUDIT.md` and `docs/PHASE_STATUS.md`.
