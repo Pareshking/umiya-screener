@@ -1,8 +1,4 @@
-"""Build and atomically publish the canonical Umiya V2 price dataset.
-
-This is the Phase 1 data-foundation pipeline. It deliberately does not
-calculate screener metrics; that belongs to the Phase 2 quantitative engine.
-"""
+"""Build and atomically publish the canonical Umiya V2 price dataset."""
 
 from __future__ import annotations
 
@@ -15,14 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.data import (  # noqa: E402
-    HISTORY_YEARS,
-    PRICE_FIELDS,
-    eligible_symbols,
-    fetch_prices,
-    latest_market_date,
-    load_universe,
-)
+from src.data import HISTORY_YEARS, PRICE_FIELDS, eligible_symbols, fetch_prices, latest_market_date, load_universe
 
 OUTPUT_ROOT = ROOT / "data_cache" / "price_history"
 
@@ -36,7 +25,6 @@ def build() -> tuple[Path, dict]:
     data = fetch_prices(symbols)
     if set(data) != set(PRICE_FIELDS):
         raise RuntimeError(f"Unexpected price fields: {sorted(data)}")
-
     adj_close = data["adj_close"].reindex(columns=symbols)
     volume = data["volume"].reindex(columns=symbols)
     if adj_close.empty or volume.empty:
@@ -45,32 +33,24 @@ def build() -> tuple[Path, dict]:
     as_of = latest_market_date(adj_close)
     eligibility = eligible_symbols(adj_close, as_of=as_of)
     eligible = set(eligibility["Symbol"])
-
     if not eligible:
         raise RuntimeError("No stocks satisfy the Phase 1 history/freshness rules")
 
-    missing_required_fields = [
-        symbol for symbol in eligibility["Symbol"]
-        if volume[symbol].notna().sum() < 126
-    ]
+    missing_required_fields = [symbol for symbol in eligibility["Symbol"] if volume[symbol].notna().sum() < 126]
     if missing_required_fields:
-        raise RuntimeError(
-            "Eligible stocks without 126 valid volume observations: "
-            + ", ".join(missing_required_fields)
-        )
+        raise RuntimeError("Eligible stocks without 126 valid volume observations: " + ", ".join(missing_required_fields))
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     candidate = OUTPUT_ROOT / f"dataset_{timestamp}.tmp"
     published = OUTPUT_ROOT / f"dataset_{timestamp}"
     candidate.mkdir(parents=True, exist_ok=False)
-
     try:
         adj_close.to_parquet(candidate / "adj_close.parquet")
         volume.to_parquet(candidate / "volume.parquet")
         eligibility.to_parquet(candidate / "eligibility.parquet", index=False)
-
+        universe.to_parquet(candidate / "universe.parquet", index=False)
         metadata = {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "data_contract": ["adj_close", "volume"],
             "history_years": HISTORY_YEARS,
             "universe": "NIFTY 750",
