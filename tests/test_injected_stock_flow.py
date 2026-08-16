@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -92,7 +92,6 @@ def test_phase2_metric_and_query_flow_accepts_injected_apcotexind(monkeypatch):
     assert pd.notna(row["Volume Ratio"])
 
     monkeypatch.setattr(service.store, "get", lambda: frame.copy())
-    monkeypatch.setattr(service.store, "built_at", built_at, raising=False)
     payload = ScreenerQuery.model_validate(
         {
             "filters": [{"field": "Symbol", "operator": "=", "value": "APCOTEXIND"}],
