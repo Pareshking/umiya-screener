@@ -17,6 +17,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Install smoke-test dependency
+        run: python -m pip install --disable-pip-version-check httpx
       - name: Run production smoke and latency audit
         env:
           PRODUCTION_API_URL: https://umiya-screener-api.onrender.com
