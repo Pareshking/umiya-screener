@@ -20,6 +20,11 @@ app = FastAPI(title="Umiya Screener API", version="0.4.1")
 origins = [item.strip() for item in os.getenv("ALLOWED_ORIGINS", "https://pareshpatel.vercel.app").split(",") if item.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["*"])
 
+# Small per-process chart cache. The production dataset is immutable, so caching
+# a requested symbol's price/volume series is safe until the published dataset changes.
+_CHART_CACHE_DATASET: str | None = None
+_CHART_CACHE: dict[str, pd.DataFrame] = {}
+
 
 def _cache_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=503, detail=str(exc))
@@ -77,6 +82,36 @@ def _ensure_price_dataset() -> tuple[Path, dict]:
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Price dataset is unavailable.") from exc
+
+
+def _load_chart_frame(dataset: Path, symbol: str) -> pd.DataFrame:
+    global _CHART_CACHE_DATASET
+    dataset_key = str(dataset.resolve())
+    if _CHART_CACHE_DATASET != dataset_key:
+        _CHART_CACHE.clear()
+        _CHART_CACHE_DATASET = dataset_key
+    cached = _CHART_CACHE.get(symbol)
+    if cached is not None:
+        return cached
+    try:
+        close = pd.read_parquet(dataset / "adj_close.parquet", columns=[symbol])
+        volume = pd.read_parquet(dataset / "volume.parquet", columns=[symbol])
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Chart data unavailable for {symbol}.") from exc
+    chart = pd.DataFrame({"date": close.index, "adj_close": close[symbol].values, "volume": volume[symbol].reindex(close.index).values}).dropna(subset=["adj_close"])
+    _CHART_CACHE[symbol] = chart
+    return chart
+
+
+@app.on_event("startup")
+def warm_price_dataset() -> None:
+    # Download/validate the immutable price dataset during service startup so the
+    # first user chart does not pay the R2 cold-load penalty. Failure is non-fatal;
+    # the chart endpoint will retry lazily if the object store is temporarily unavailable.
+    try:
+        _ensure_price_dataset()
+    except Exception:
+        pass
 
 
 @app.get("/api/v1/health")
@@ -151,10 +186,5 @@ def stock(symbol: str) -> dict:
 def stock_chart(symbol: str, days: int = Query(252, ge=20, le=2520)) -> dict:
     symbol = symbol.upper().replace(".NS", "")
     dataset, metadata = _ensure_price_dataset()
-    try:
-        close = pd.read_parquet(dataset / "adj_close.parquet", columns=[symbol])
-        volume = pd.read_parquet(dataset / "volume.parquet", columns=[symbol])
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"Chart data unavailable for {symbol}.") from exc
-    chart = pd.DataFrame({"date": close.index, "adj_close": close[symbol].values, "volume": volume[symbol].reindex(close.index).values}).dropna(subset=["adj_close"]).tail(days)
+    chart = _load_chart_frame(dataset, symbol).tail(days)
     return {"symbol": symbol, "market_as_of": metadata.get("market_as_of"), "data_contract": ["adj_close", "volume"], "rows": chart.where(pd.notna(chart), None).to_dict(orient="records")}
