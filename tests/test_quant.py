@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.quant import industry_relative, momentum_acceleration, momentum_score, technical_snapshot
+from src.quant import clean_prices, industry_relative, momentum_acceleration, momentum_score, technical_snapshot
 
 
 def sample_data():
@@ -45,3 +45,14 @@ def test_acceleration():
     close, *_ = sample_data()
     accel = momentum_acceleration(close)
     assert len(accel) == close.shape[1]
+
+
+def test_clean_prices_removes_rows_with_excessive_missing_data():
+    close, *_ = sample_data()
+    bad = close.copy()
+    bad.iloc[10, :] = np.nan
+    bad.iloc[11, :4] = np.nan
+    cleaned = clean_prices(bad)
+    assert bad.index[10] not in cleaned.index
+    assert bad.index[11] in cleaned.index
+    assert cleaned.iloc[11].notna().all()
