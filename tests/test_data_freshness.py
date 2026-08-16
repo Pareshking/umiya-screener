@@ -25,11 +25,12 @@ def test_freshness_uses_common_market_date_not_each_stock_latest_date():
     assert set(eligibility["Symbol"]) == {"FRESH", "ONE_DAY_OLD", "THREE_DAYS_OLD"}
 
 
-def test_alignment_never_fills_trailing_gap():
+def test_alignment_preserves_trailing_gap_without_imputation():
     prices = make_prices()
     aligned = align_trailing_to_as_of(prices, ["ONE_DAY_OLD"], prices.index[-1])
     assert pd.isna(aligned.iloc[-1]["ONE_DAY_OLD"])
-    assert pd.isna(aligned.iloc[-2]["ONE_DAY_OLD"])
+    # Earlier genuine observations remain intact; alignment only reindexes.
+    assert aligned.iloc[-2]["ONE_DAY_OLD"] == prices.iloc[-2]["ONE_DAY_OLD"]
 
 
 def test_alignment_preserves_interior_missing_data():
