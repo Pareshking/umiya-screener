@@ -1,62 +1,57 @@
-# Phase 6 — Production Measurement and Acceptance Plan
+# Phase 7 — Production Operational Hardening Plan
 
 **Started:** 2026-08-16
 
-Phase 5 is closed. The production R2 lifecycle policy has been configured and verified:
+Phase 5 and Phase 6 are complete. Phase 7 is now the active workstream.
 
-- `datasets/` → 30-day expiration
-- `metrics/` → 30-day expiration
-- `pointers/` → no expiration rule
-- incomplete multipart uploads → 7-day abort
+## Objective
 
-## Phase 6 objective
+Improve operational reliability of the deployed Screener without changing the quantitative methodology, canonical Adj Close + Volume contract, or Screener-only product scope.
 
-Measure and harden the deployed Vercel → Render → R2/API path without changing the quant/data contract unnecessarily.
+## 7A — Observability and readiness
 
-## Automated benchmark
+1. Separate liveness from readiness.
+2. Expose safe dataset freshness/build information.
+3. Add request correlation IDs where practical.
+4. Make degraded/stale states explicit and machine-readable.
 
-Use:
+## 7B — Recovery and failure containment
 
-- `scripts/phase6_benchmark.py`
-- `.github/workflows/phase6-benchmark.yml`
+1. Verify last-known-good metrics remain active after failed publication.
+2. Verify R2 outage behavior and local-cache fallback.
+3. Verify malformed pointer/dataset recovery.
+4. Verify temporary downloads cannot replace a valid active dataset.
 
-The benchmark measures repeated production HTTP timings for screener query, filters, search, sort, export, stock detail, 3M/6M/1Y charts and frontend response. It reports p50, p95 and max latency and uploads raw measurements as a GitHub Actions artifact.
+## 7C — Stale-data policy
 
-The benchmark now preferentially selects `APCOTEXIND` when that symbol is present in the live universe, providing a controlled production-path check for the previously discussed injected-stock flow.
+1. Define the maximum acceptable metrics age.
+2. Verify stale data produces a safe API state rather than being presented as current.
+3. Verify the frontend has an understandable degraded/retry path.
 
-## 6A–6F status
+## 7D — Scheduled operations
 
-- [x] Baseline benchmark recorded.
-- [x] Chart cold-start bottleneck identified.
-- [x] Startup price-dataset warming implemented.
-- [x] Per-symbol chart caching implemented.
-- [x] Chart endpoint aligned with current eligible stock universe.
-- [x] Corporate-action/index-count resilience verified and covered by tests.
-- [x] APCOTEXIND injected-stock pipeline test exists through Phase 1 → metrics → screener query.
-- [x] Production CORS and secret-handling configuration audited at source level.
-- [ ] Final production deployment of the latest commits.
-- [ ] Final production smoke + Phase 6 benchmark on that same deployed commit.
-- [ ] Final browser/mobile walkthrough, including APCOTEXIND when present.
+1. Verify weekday refresh schedule.
+2. Verify failed refresh visibility/notification.
+3. Verify production smoke coverage after refresh.
+4. Verify R2 lifecycle retention cannot remove active pointers/current datasets.
 
-## Initial production baseline
+## 7E — Security and abuse resistance
 
-Seven runs per operation, all HTTP 200:
+1. Review CORS and request handling.
+2. Review expensive export behavior.
+3. Confirm secrets never enter frontend bundles or normal logs.
+4. Review dependency/security automation.
 
-| Operation | p50 | p95 | Max |
-|---|---:|---:|---:|
-| Screener query | 73 ms | 96 ms | 96 ms |
-| Numeric filter | 71 ms | 89 ms | 89 ms |
-| Multi-filter | 72 ms | 94 ms | 94 ms |
-| Search | 70 ms | 76 ms | 76 ms |
-| Sort | 76 ms | 241 ms | 241 ms |
-| Export | 343 ms | 596 ms | 596 ms |
-| Stock detail | 64 ms | 66 ms | 66 ms |
-| Chart 3M | 66 ms | 286 ms | 286 ms |
-| Chart 6M | 67 ms | 83 ms | 83 ms |
-| Chart 1Y | 68 ms | 88 ms | 88 ms |
-| Frontend | 63 ms | 206 ms | 206 ms |
+## 7F — Disaster/recovery acceptance
 
-The earlier ~2.8 s 3M cold-start outlier was addressed by startup warming and chart caching.
+Simulate:
+
+- failed data refresh
+- unavailable R2
+- stale metrics
+- malformed active pointer
+
+Then confirm the service fails safely and recovers after the next valid publication.
 
 ## Constraints
 
@@ -64,7 +59,10 @@ The earlier ~2.8 s 3M cold-start outlier was addressed by startup warming and ch
 - No Streamlit.
 - No frontend financial calculations.
 - No fake financial data.
-- Do not force the live universe to exactly 750 rows.
-- Adj Close + Volume remains the canonical data contract.
-- Do not turn unavailable long-history returns into artificial 0% values.
-- Do not optimise without measurements.
+- Adj Close + Volume remains canonical.
+- Do not change quantitative methodology without explicit requirement and regression coverage.
+- Prefer small, reversible operational changes.
+
+## Phase 7 closure
+
+Do not close Phase 7 until failure simulations, recovery checks, security review and documentation pass against the deployed production configuration.
