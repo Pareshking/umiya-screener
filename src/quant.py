@@ -107,20 +107,37 @@ def momentum_score(
     windows: Sequence[int] = MOMENTUM_WINDOWS,
     weights: Sequence[float] = MOMENTUM_WEIGHTS,
 ) -> pd.DataFrame:
-    """Weighted cross-sectional Z-score of Sharpe × R² across 1M–12M lookbacks."""
+    """Weighted cross-sectional Z-score of Sharpe × R² across available lookbacks.
+
+    Each R²/Sharpe component uses its own matching window. If a stock does not
+    yet have enough history for a longer horizon, that component is omitted
+    and the remaining weights are renormalized for that stock. This avoids
+    penalizing newer stocks solely for lacking 9M/12M history while retaining
+    the minimum-history eligibility rule for the screener.
+    """
     prices = clean_prices(prices)
     if len(windows) != len(weights):
         raise ValueError("windows and weights must have equal length")
+
     valid_counts = prices.notna().sum()
     eligible = valid_counts >= MIN_HISTORY
     result = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
-    total = float(sum(weights)) or 1.0
+    weight_available = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+
     for window, weight in zip(windows, weights):
         risk = sharpe(prices, window)
         quality = rolling_r2(prices, window)
         raw = risk * quality
-        raw.loc[:, valid_counts < window] = np.nan
-        result = result.add(_cross_sectional_z(raw).fillna(0) * (weight / total), fill_value=0)
+        raw.loc[:, valid_counts < window + 1] = np.nan
+
+        z = _cross_sectional_z(raw)
+        available = z.notna().astype(float)
+        result = result.add(z.fillna(0) * weight, fill_value=0)
+        weight_available = weight_available.add(available * weight, fill_value=0)
+
+    # Renormalize the available component weights independently for each stock.
+    # Stocks below MIN_HISTORY remain ineligible regardless of short-window data.
+    result = result.div(weight_available.replace(0, np.nan))
     result.loc[:, ~eligible] = np.nan
     return result
 
