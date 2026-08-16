@@ -1,6 +1,6 @@
 # Umiya Screener V2 — Project Context
 
-**Last updated:** 2026-08-16
+**Last updated:** 2026-08-17
 
 This is the first document an AI assistant should read before making a significant change.
 
@@ -19,25 +19,28 @@ Immediate product scope remains **Screener only**. Other Umiya modules are defer
 
 ## Current state
 
-Phases 0–4 are complete. Phase 5 implementation and automated validation are complete. The final Phase 5 housekeeping item is external: verify/configure the actual Cloudflare R2 lifecycle/retention rule.
+Phases 0–4 are complete. Phase 5 production implementation, validation, R2 publication and housekeeping are complete. Phase 5 is formally closed.
 
-Latest validated commit before documentation-only changes:
-`05cea11ccf2e975e96aea3ff5293384e2d584f27`
+Latest validated V2 production data refresh completed successfully on 2026-08-16. The pipeline built the canonical dataset/metrics, validated them, published immutable datasets to R2, advanced the latest pointer and passed production smoke testing.
 
-Validation result:
+Latest V2 code changes relevant to momentum data handling:
 
-- 50 Python tests passed
-- frontend build passed
-- 10-year Yahoo Adj Close + Volume validation passed
-- real current-universe Phase 2 metric validation passed
-- production smoke passed
+- `54a451c` — Adjusted Close price cleaning with safe forward-fill after each stock's first genuine observation.
+- `ac733c9` — Per-stock available-window momentum weight normalization.
+- `c1efbfb8` — Regression test update for the approved forward-fill behaviour.
+
+The corresponding V1 legacy implementation in `Pareshking/Umiya` was also updated by explicit exception on 2026-08-16:
+
+- `b2651179393e7c25e2ff1ba3010c5cd5523ef28a` — full lookback windows and available-window weight normalization.
+
+V1 continues to use **Close**; V2 continues to use **Adjusted Close**. No other V1/V2 momentum systems were intentionally changed by this comparison/fix.
 
 ## Architecture
 
 ```text
 NSE constituent acquisition
         ↓
-Yahoo 10Y Adj Close + Volume
+Yahoo 10Y Adjusted Close + Volume
         ↓
 Validation
         ↓
@@ -58,9 +61,29 @@ The canonical universe is based on the NSE index composition used by the project
 
 Phase 1 market data is Yahoo Finance **Adjusted Close + Volume only**, with a 10-year window, common market `as_of`, minimum 126 valid observations and maximum 3-calendar-day freshness. Price and volume freshness are checked independently when both fields are present.
 
+For V2 price matrices, missing observations are **forward-filled after each stock's first genuine observation**. Values before a stock's first observation are never fabricated. This is the validated replacement for the previous no-fill behaviour that caused missing Sharpe/R² components and severe ranking distortion.
+
 No High/Low/OHLC should be added silently. Metrics requiring those fields need an explicit data-contract decision.
 
 Unavailable long-lookback returns remain `NaN`; never manufacture a neutral 0% return for insufficient history.
+
+## Momentum window handling — validated
+
+The primary multi-window momentum system uses matched lookback windows:
+
+| Component | Window |
+|---|---:|
+| 1M | 21 trading days |
+| 3M | 63 trading days |
+| 6M | 126 trading days |
+| 9M | 189 trading days |
+| 12M | 252 trading days |
+
+Each Sharpe/R² component requires its corresponding full window. A stock with insufficient history for a longer horizon is **not assigned a zero for that component**. Instead, available component weights are renormalized for that stock/date.
+
+Primary screener eligibility remains **126 genuine observations**. Therefore a stock with roughly six months of history can rank using its available 1M/3M/6M components without being artificially penalized for unavailable 9M/12M history.
+
+This behaviour was separately audited against the old V1 implementation. The data-processing bug that previously caused hundreds of V2 stocks to lose momentum factors was traced to missing-observation handling, not to a disagreement in the momentum mathematics.
 
 ## Hardening completed
 
@@ -74,6 +97,7 @@ Unavailable long-lookback returns remain `NaN`; never manufacture a neutral 0% r
 - stale frontend request cancellation
 - production smoke tests that do not depend on one hard-coded stock
 - regression fixtures aligned with the price+volume eligibility contract
+- validated V1/V2 missing-data and momentum-window audit
 
 ## R2 / publication
 
@@ -88,15 +112,15 @@ Production GitHub Actions secrets:
 
 ## Phase 5 final housekeeping
 
-Verify the actual Cloudflare R2 bucket lifecycle configuration:
+Cloudflare R2 lifecycle configuration was manually verified as OK on 2026-08-16:
 
-- historical `datasets/` versions: proposed 30-day retention
-- historical `metrics/` versions: proposed 30-day retention
-- `pointers/`: never expire through the historical-data rule
-- incomplete multipart uploads: proposed 7-day abort rule
-- active/latest data must remain protected
+- historical `datasets/` versions: 30-day retention
+- historical `metrics/` versions: 30-day retention
+- `pointers/`: protected from the historical expiration rule
+- incomplete multipart uploads: 7-day cleanup
+- active/latest data remains protected
 
-Do not mark this complete from repository code alone.
+This is a manual bucket-console verification, not an automated repository assertion.
 
 ## APCOTEXIND clarification
 
@@ -121,7 +145,7 @@ Only optimise measured bottlenecks.
 
 ## Do not do
 
-- Do not modify the old `Pareshking/Umiya` repository.
+- Do not redesign the quantitative methodology without an explicit analysis/decision.
 - Do not reintroduce Streamlit.
 - Do not put calculations in the frontend.
 - Do not use fake production financial data.
