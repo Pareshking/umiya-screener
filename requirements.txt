@@ -8,3 +8,4 @@ uvicorn
 pydantic
 boto3
 pytest
+httpx2
