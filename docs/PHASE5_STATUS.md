@@ -1,26 +1,33 @@
 # Phase 5 Status
 
-**Implementation complete; formal closure pending one housekeeping item.**
+**Status: COMPLETE — 2026-08-16**
 
-## Remaining gate
+Phase 5 production deployment and hardening are formally closed.
 
-Verify/configure the Cloudflare R2 bucket's object lifecycle/retention policy so old immutable dataset versions do not accumulate indefinitely.
+## Final housekeeping gate — completed
 
-Recommended initial policy:
+Cloudflare R2 lifecycle/retention policy was configured and verified in the production bucket:
 
-- `datasets/` → expire historical versions after 30 days
-- `metrics/` → expire historical versions after 30 days
-- `pointers/` → no historical-data expiration rule
-- incomplete multipart uploads → abort after 7 days
+- `datasets/` → 30-day retention for historical immutable dataset versions
+- `metrics/` → 30-day retention for historical immutable metric versions
+- `pointers/` → protected from the historical expiration rule
+- incomplete multipart uploads → 7-day cleanup
 
-The 30-day retention is a proposed starting point, not yet a verified production setting. Confirm that the active/latest dataset remains protected by the publication/retention design.
+The active/latest pointer remains protected by the publication design and is not subject to the historical dataset expiration rule.
 
-Cloudflare's current R2 lifecycle documentation describes lifecycle rules as bucket-level configuration and notes that objects are typically removed within 24 hours after the expiration takes effect.
+## Production validation
+
+- Real R2 publication completed successfully.
+- Controlled production data refresh completed successfully.
+- Canonical dataset and metrics validation passed.
+- R2 publication and pointer advancement passed.
+- Post-publication production readiness smoke passed.
+- Production smoke passed.
 
 ## APCOTEXIND clarification
 
 `APCOTEXIND.NS` is a data-pipeline/newly-injected-stock test fixture. **It was never intended to be shown in the production frontend.** Do not describe it as a frontend end-to-end stock test or modify the canonical NSE 750 solely to display it.
 
-## After closure
+## Phase 5 closure
 
-Formally close Phase 5 and begin Phase 6. Phase 6 starts with deployed performance/UX measurement, not architecture redesign.
+Phase 5 is formally closed. Subsequent work belongs to Phase 6 and Phase 7/8 as documented in `docs/PHASE_STATUS.md`.
