@@ -35,6 +35,23 @@ def eligible_symbols(prices: pd.DataFrame, min_history: int = MIN_HISTORY) -> pd
     return prices.notna().sum(axis=0).loc[lambda s: s >= min_history].index
 
 
+def _last_valid(series: pd.Series) -> float:
+    valid = series.dropna()
+    return float(valid.iloc[-1]) if not valid.empty else np.nan
+
+
+def _return_by_observations(close: pd.DataFrame, window: int) -> pd.Series:
+    """Return using the last valid observation and ``window`` valid observations back."""
+    values = {}
+    for symbol in close.columns:
+        series = close[symbol].dropna()
+        if len(series) <= window:
+            values[symbol] = np.nan
+        else:
+            values[symbol] = (series.iloc[-1] / series.iloc[-window - 1] - 1) * 100
+    return pd.Series(values, index=close.columns, dtype=float)
+
+
 def zscore(s: pd.Series, clip: float = 3.0) -> pd.Series:
     valid = s.dropna()
     if len(valid) < 3 or valid.std() == 0:
@@ -70,8 +87,6 @@ def momentum_score(prices: pd.DataFrame, windows: Sequence[int] = (21, 63, 126, 
     eligible = valid_counts >= MIN_HISTORY
     for window, weight in zip(windows, weights):
         raw = sharpe_r2(prices, window)
-        # Do not reject a 126-day stock merely because a 189/252-day metric
-        # is unavailable. The missing component contributes zero.
         raw.loc[:, valid_counts < window] = np.nan
         mean = raw.mean(axis=1)
         std = raw.std(axis=1).replace(0, np.nan)
@@ -84,45 +99,42 @@ def momentum_score(prices: pd.DataFrame, windows: Sequence[int] = (21, 63, 126, 
 def technical_snapshot(close: pd.DataFrame, high: pd.DataFrame, low: pd.DataFrame, volume: pd.DataFrame) -> pd.DataFrame:
     """Build the core stock-level technical columns used by the screener."""
     close, high, low, volume = map(clean_prices, (close, high, low, volume))
-    latest = close.iloc[-1]
+    latest = close.apply(_last_valid)
     out = pd.DataFrame(index=close.columns)
     history_counts = close.notna().sum()
     out["History Days"] = history_counts
     out["Eligible"] = history_counts >= MIN_HISTORY
     out["CMP"] = latest
     for span in (50, 100, 200):
-        ema = close.ewm(span=span, min_periods=max(20, span // 2)).mean().iloc[-1]
+        ema = close.ewm(span=span, min_periods=max(20, span // 2)).mean().apply(_last_valid)
         out[f"EMA {span}"] = ema
         out[f"Above EMA {span}"] = latest > ema
         out[f"% EMA {span}"] = (latest / ema - 1) * 100
 
-    high_52w = high.iloc[-min(252, len(high)):].max()
+    high_52w = high.tail(min(252, len(high))).max()
     out["52W High"] = high_52w
     out["% From 52W High"] = (latest / high_52w - 1) * 100
     out["Within 20% of 52W High"] = out["% From 52W High"] >= -20
 
-    # A stock with 126+ observations is eligible. If it lacks a full 12M
-    # history, 12M RoC is explicitly defined as zero per Umiya policy.
     for window, label in ((21, "1M"), (63, "3M"), (126, "6M"), (189, "9M"), (252, "12M")):
-        values = pd.Series(np.nan, index=close.columns, dtype=float)
-        if len(close) > window:
-            start = close.iloc[-window - 1]
-            values = (latest / start - 1) * 100
+        values = _return_by_observations(close, window)
         if label == "12M":
             values = values.fillna(0.0)
         out[f"{label} Return"] = values
 
     tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()]).groupby(level=0).max()
-    atr = tr.rolling(14, min_periods=5).mean().iloc[-1]
+    atr = tr.rolling(14, min_periods=5).mean().apply(_last_valid)
     out["ATR"] = atr
     out["ATR %"] = atr / latest * 100
     out["ATR Stop 2x"] = (latest - 2 * atr).clip(lower=0)
-    out["Chandelier Exit"] = (high.iloc[-22:].max() - 3 * atr).clip(lower=0)
+    out["Chandelier Exit"] = (high.tail(22).max() - 3 * atr).clip(lower=0)
 
     logret = np.log(close / close.shift(1))
-    out["Persistence 6M %"] = (logret.iloc[-126:].gt(0).sum() / logret.iloc[-126:].notna().sum() * 100)
-    vol_avg = volume.rolling(20, min_periods=10).mean().iloc[-1]
-    out["Volume Ratio"] = volume.iloc[-1] / vol_avg.replace(0, np.nan)
+    recent_logret = logret.tail(126)
+    out["Persistence 6M %"] = recent_logret.gt(0).sum() / recent_logret.notna().sum() * 100
+    vol_avg = volume.rolling(20, min_periods=10).mean().apply(_last_valid)
+    latest_volume = volume.apply(_last_valid)
+    out["Volume Ratio"] = latest_volume / vol_avg.replace(0, np.nan)
     return out
 
 
