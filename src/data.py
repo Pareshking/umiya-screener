@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import time
-from datetime import date
 from typing import Sequence
 
 import pandas as pd
@@ -22,7 +21,7 @@ from .config import (
 )
 
 PRICE_FIELDS = ("adj_close", "volume")
-HISTORY_PERIOD = "10y"
+HISTORY_YEARS = 10
 
 
 def _download_nse_csv(url: str) -> bytes:
@@ -105,14 +104,22 @@ def _parse_universe(raw: bytes) -> pd.DataFrame:
     return out[~out["Symbol"].str.startswith("DUMMY")].drop_duplicates("Symbol").reset_index(drop=True)
 
 
-def fetch_prices(symbols: Sequence[str], period: str = HISTORY_PERIOD) -> dict[str, pd.DataFrame]:
-    """Download the canonical V2 price dataset: Adjusted Close and Volume only."""
+def _ten_year_window() -> tuple[str, str]:
+    end = pd.Timestamp.today().normalize() + pd.Timedelta(days=1)
+    start = end - pd.DateOffset(years=HISTORY_YEARS)
+    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+
+def fetch_prices(symbols: Sequence[str], start: str | None = None, end: str | None = None) -> dict[str, pd.DataFrame]:
+    """Download the canonical V2 dataset: 10 years of Adjusted Close and Volume."""
     tickers = [s if s.endswith(".NS") else f"{s}.NS" for s in symbols]
     if not tickers:
         return {field: pd.DataFrame() for field in PRICE_FIELDS}
+    default_start, default_end = _ten_year_window()
     raw = yf.download(
         tickers,
-        period=period,
+        start=start or default_start,
+        end=end or default_end,
         auto_adjust=False,
         actions=False,
         progress=False,
@@ -135,9 +142,9 @@ def fetch_prices(symbols: Sequence[str], period: str = HISTORY_PERIOD) -> dict[s
     return result
 
 
-# Backwards-compatible alias for callers being migrated to the V2 data contract.
-def fetch_ohlcv(symbols: Sequence[str], period: str = HISTORY_PERIOD) -> dict[str, pd.DataFrame]:
-    return fetch_prices(symbols, period=period)
+def fetch_ohlcv(symbols: Sequence[str], period: str = "10y") -> dict[str, pd.DataFrame]:
+    """Compatibility wrapper while callers migrate to the V2 two-field data contract."""
+    return fetch_prices(symbols)
 
 
 def latest_market_date(adj_close: pd.DataFrame) -> pd.Timestamp:
