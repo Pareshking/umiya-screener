@@ -185,6 +185,16 @@ def stock(symbol: str) -> dict:
 @app.get("/api/v1/stocks/{symbol}/chart")
 def stock_chart(symbol: str, days: int = Query(252, ge=20, le=2520)) -> dict:
     symbol = symbol.upper().replace(".NS", "")
+    # Keep chart access consistent with stock-detail access: a chart must not
+    # expose a symbol that is outside the current eligible screener universe.
+    try:
+        frame = store.get()
+    except (MetricsCacheUnavailable, MetricsCacheStale) as exc:
+        raise _cache_error(exc) from exc
+    if frame[frame["Symbol"] == symbol].empty:
+        raise HTTPException(status_code=404, detail=f"Stock {symbol} is not in the current eligible universe.")
     dataset, metadata = _ensure_price_dataset()
     chart = _load_chart_frame(dataset, symbol).tail(days)
+    if chart.empty:
+        raise HTTPException(status_code=404, detail=f"Chart data unavailable for {symbol}.")
     return {"symbol": symbol, "market_as_of": metadata.get("market_as_of"), "data_contract": ["adj_close", "volume"], "rows": chart.where(pd.notna(chart), None).to_dict(orient="records")}
