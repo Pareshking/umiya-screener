@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implementation complete. One final housekeeping item remains before formal Phase 5 closure.**
+**COMPLETE — 2026-08-16**
 
 ### Verified
 
@@ -28,24 +28,23 @@
 - [x] Production smoke workflow green
 - [x] Search/filter/sort/query path verified
 - [x] API error handling verified
+- [x] Cloudflare R2 lifecycle/retention policy configured and verified
+- [x] Controlled real data refresh completed successfully
+- [x] Post-publication production readiness smoke passed
 
-## Final remaining item
+### Final lifecycle policy
 
-- [ ] **Verify/configure Cloudflare R2 object lifecycle/retention policy.**
+- `datasets/` → 30-day historical retention
+- `metrics/` → 30-day historical retention
+- `pointers/` → protected from the historical expiration rule
+- incomplete multipart uploads → 7-day cleanup
 
-The purpose is to prevent immutable historical datasets from accumulating indefinitely.
+The active/latest pointer is protected by the publication design and is not subject to the historical dataset expiration rule.
 
-### Required lifecycle behaviour
+## APCOTEXIND clarification
 
-- Apply retention/expiration to historical immutable dataset objects under `datasets/` and `metrics/`.
-- Do **not** expire `pointers/` through the historical-data rule.
-- Never delete the currently active/latest dataset while it is still current.
-- Consider a 30-day initial retention period, subject to rollback needs.
-- Configure cleanup for incomplete multipart uploads if appropriate.
-- Verify the rule in the actual Cloudflare R2 bucket.
+`APCOTEXIND.NS` is a data-pipeline/newly-injected-stock test fixture. **It is not intended to be shown in the production frontend.** Do not describe it as a frontend end-to-end stock test or modify the canonical NSE 750 solely to display it.
 
 ## Phase 5 closure condition
 
-Phase 5 may be formally closed only after the actual R2 bucket lifecycle configuration is verified/configured and documented.
-
-After that, Phase 6 begins. Do not treat Phase 6 performance/mobile work as Phase 5 blockers.
+All Phase 5 conditions are satisfied. Phase 5 is formally closed. Continue with the active phase documented in `docs/PHASE_STATUS.md`.
