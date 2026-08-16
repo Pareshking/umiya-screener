@@ -12,12 +12,24 @@ MOMENTUM_WEIGHTS = (0.10, 0.30, 0.30, 0.20, 0.10)
 
 
 def clean_prices(prices: pd.DataFrame) -> pd.DataFrame:
-    """Normalize dates without imputing any observations."""
+    """Normalize dates and forward-fill gaps after each stock's first observation.
+
+    This preserves the common market-date grid used by the original V1
+    pipeline while keeping V2's canonical Adjusted Close input. Values before
+    a stock's first real observation are never imputed.
+    """
     if prices.empty:
         return prices.copy()
     out = prices.copy()
     out.index = pd.to_datetime(out.index).tz_localize(None)
-    return out.sort_index()
+    out = out.sort_index()
+    first_valid = out.notna().idxmax()
+    for column in out.columns:
+        first = first_valid[column]
+        if pd.isna(first):
+            continue
+        out.loc[first:, column] = out.loc[first:, column].ffill()
+    return out
 
 
 def _last_valid(series: pd.Series) -> float:
@@ -45,19 +57,12 @@ def returns(close: pd.DataFrame, windows: Sequence[int] = MOMENTUM_WINDOWS) -> p
     labels = {21: "1M Return", 63: "3M Return", 126: "6M Return", 189: "9M Return", 252: "12M Return"}
     for window in windows:
         values = _return_by_observations(close, window)
-        # Insufficient history remains NaN. It must never be converted to a
-        # neutral 0% return because that would make a new/short-history stock
-        # appear to satisfy a return filter it cannot actually satisfy.
         out[labels[window]] = values
     return out
 
 
 def rolling_r2(prices: pd.DataFrame, window: int = 252) -> pd.DataFrame:
-    """Vectorized R² of log-price versus a linear time trend.
-
-    Uses rolling sufficient statistics instead of per-symbol rolling Python
-    callbacks. Missing observations invalidate a window; no imputation occurs.
-    """
+    """Vectorized R² of log-price versus a linear time trend."""
     prices = clean_prices(prices)
     logp = np.log(prices.where(prices > 0))
     n = len(logp)
