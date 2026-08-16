@@ -46,11 +46,13 @@ Completed 8A–8F work:
 
 The only item that cannot be truthfully automated is an independent human visual walkthrough on a real desktop/mobile browser/device. The repository and deployed API checks do not substitute for that observation.
 
-## Phase 9 — Production release & acceptance
-**IN PROGRESS — 2026-08-16.**
+### Phase 9 — Production release & acceptance
+**COMPLETE — 2026-08-16.**
 
-The release checkpoint is waiting on the updated production smoke run after the cold-start handling change. Frontend, Python, data-validation and CodeQL gates are already green on the preceding run.
+The updated production smoke workflow passed. The release checkpoint verified the public API and frontend, cold-start-safe readiness/liveness behavior, queries, search/sort, stock detail, charts, export, HTTP 400/404 contracts, CORS and frontend reachability. Frontend build, Python/data-validation gates and CodeQL were green on the release checkpoint.
 
 ## Current release state
 
-The Screener is in the final production acceptance checkpoint. No architecture redesign or quantitative-methodology change is planned for Phase 9.
+**Production acceptance checkpoint complete.** The Screener is ready to move to new product work without reopening the architecture or quantitative methodology.
+
+The independent human desktop/mobile visual walkthrough remains an external observation and is intentionally not represented as automated evidence.
