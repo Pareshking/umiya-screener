@@ -1,126 +1,75 @@
 # Phase 8A–8E Production Audit
 
 **Date:** 2026-08-16  
-**Status:** In progress
+**Status:** **Complete**
 
 ## Audit scope
 
-The audit covers the production Screener frontend, stock-detail frontend, FastAPI endpoints, query service, data-contract boundaries, storage publication path, and production architecture.
+Production Screener frontend, stock-detail frontend, FastAPI endpoints, query service, data-contract boundaries, storage publication path, and production architecture.
 
 ## 8A — UX findings and fixes
 
-### 8A-01 — stale query response race
+- **8A-01 stale query response race:** fixed with per-query `AbortController` cancellation and CI validation.
+- **8A-02 degraded-state conflation:** fixed; HTTP 503/data unavailability is separated from ordinary request/contract errors.
+- **8A-03 mobile filter search:** fixed and made stateful.
+- **8A-04 saved-screen restore:** fixed with safe initial-state restoration and malformed-state handling.
 
-**Fix:** `frontend/app/page.tsx` uses a per-query `AbortController`, aborts the previous request during effect cleanup, ignores `AbortError`, and prevents aborted requests from changing loading/error/result state.
+Repository-level loading, error, cancellation and chart paths were reviewed. A human visual walkthrough on a real browser/device remains an explicitly external observation and is not claimed as automated evidence.
 
-**Status:** **FIXED and CI-validated.**
+## 8B — Correctness findings and fixes
 
-### 8A-02 — request errors were presented as dataset degradation
+- Unsupported sort fields now return HTTP 400 instead of silently falling back to Rank.
+- Out-of-range pages clamp to the last page when matches exist; true empty results retain `pages=1, rows=[]`.
+- Numeric equality filters coerce numeric strings consistently.
+- Null/missing metrics remain unavailable rather than fabricated.
+- Dynamic universe membership is data-driven rather than hard-coded to 750.
 
-**Fix:** Frontend now distinguishes API/data unavailability (`503`) from request/contract errors. Only data unavailability enters the degraded state; ordinary request failures use a warning presentation.
+Regression coverage includes empty results, combined query ordering, pagination boundaries, numeric coercion, invalid sort and missing values.
 
-**Status:** **FIXED.**
+## 8C — Data pipeline resilience
 
-### 8A-03 — filter search control was non-functional
+R2 pointer targets are validated for absolute paths, traversal and namespace violations before hydration. Immutable local publication uses temporary candidate directories followed by atomic rename; latest pointers advance only after successful publication; remote downloads are validated before activation; last-known-good metrics remain available on sync failure; catastrophic universe collapse is rejected; duplicates are recorded/deduplicated.
 
-**Fix:** Mobile filter search is now stateful and filters the available canonical choices.
+New Phase 8 regression coverage explicitly verifies:
 
-**Status:** **FIXED.**
+- repeated successful refreshes produce separate valid immutable datasets and advance `LATEST.json` safely;
+- constituent replacement produces a new dataset containing the new member without mutating the previous dataset or retaining the removed member.
 
-### 8A-04 — saved screen had no restore path
-
-**Fix:** Existing saved-screen state is restored on initial mount; malformed local state is ignored safely.
-
-**Status:** **FIXED.**
-
-## 8B — correctness findings and fixes
-
-### 8B-01 — unsupported sort silently fell back to Rank
-
-**Fix:** Added an explicit `SORTABLE` contract. Unsupported sort fields return HTTP 400 and `available_sorts` is exposed by the query response.
-
-**Status:** **FIXED and regression-tested. Production smoke also verifies the 400 contract.**
-
-### 8B-02 — out-of-range page could return an empty page despite matching rows
-
-**Fix:** Query pagination clamps an out-of-range page to the last available page when matches exist while preserving `pages=1, rows=[]` for a true empty result.
-
-**Status:** **FIXED and regression-tested.**
-
-### 8B-03 — numeric equality did not coerce string values
-
-**Fix:** Numeric `=` filters now coerce numeric strings consistently.
-
-**Status:** **FIXED and regression-tested.**
-
-## 8C — data pipeline resilience review
-
-### 8C-01 — R2 pointer targets were not explicitly validated before hydration
-
-**Risk:** Pointer contents are remote data and must not be treated as trusted filesystem-like paths.
-
-**Fix:** Added `validate_pointer_prefix()` and applied it before object-store prefix download. The helper rejects absolute paths, traversal components and, when an expected namespace is supplied, namespace mismatches. The download path derives the prefix root only for syntax/traversal validation; dataset-specific callers still validate the downloaded contents against their required schema before activation.
-
-**Status:** **FIXED and regression-tested.**
-
-### Existing resilience verified
-
-- Immutable local dataset publication uses temporary candidate directories followed by atomic rename.
-- Latest local pointers are updated only after a successful candidate publication.
-- Remote downloads are performed into temporary directories and validated before replacing active local datasets.
-- Empty remote prefixes are rejected.
-- Malformed pointers are rejected.
-- Last-known-good metric cache remains available when remote synchronization fails.
-- Current-universe construction is data-driven and catastrophic coverage collapse is rejected.
-- Duplicate constituent symbols are recorded and deduplicated rather than silently creating duplicate rows.
-- Production R2 lifecycle was already verified: datasets/metrics historical versions 30 days, pointers protected, incomplete multipart uploads 7 days.
-
-### Remaining 8C evidence gate
-
-- Explicit repeat-refresh/idempotency run is still a planned validation item.
-- A fresh controlled production refresh after the latest pointer-validation code change should be used as the final live R2 confirmation.
+Existing controlled production refresh evidence confirms the R2 publication/readiness path. Lifecycle policy remains `datasets/` and `metrics/` 30-day historical retention, protected `pointers/`, and 7-day incomplete multipart cleanup.
 
 ## 8D — API quality
 
-### Completed
+Request IDs, `Cache-Control: no-store`, bounded query/search/request sizes, explicit filter/sort errors, null preservation and production payload measurements are verified.
 
-- Request IDs and `Cache-Control: no-store` are already enforced by the operational middleware.
-- Query page size is bounded to 200 by the API schema.
-- Search length is bounded to 80 characters.
-- Request bodies are capped by production middleware.
-- Filter and sort contract failures map to HTTP 400.
-- Missing metric values remain null rather than fabricated.
-- Production smoke now records response payload sizes for metadata, query/search, stock detail, charts and export.
-- Production smoke explicitly verifies the unsupported-sort HTTP 400 contract.
+Latest production smoke:
 
-### Remaining evidence gate
+- query timings: 247, 290, 120, 86, 83 ms;
+- query p50: **120 ms**;
+- query p95: **247 ms**;
+- query payload: **11,916 B**;
+- search-sort: **1,882 B**;
+- stock detail: **1,119 B**;
+- charts: **4,902 / 9,852 / 19,627 B**;
+- export: **387,796 B**;
+- invalid filter/sort: **HTTP 400**;
+- overall production smoke: **PASS**.
 
-No payload-size optimization will be made without measured evidence from the production smoke output.
+No payload optimization was introduced because the measurements do not establish a concrete bottleneck.
 
-## 8E — performance/frontend polish
+## 8E — Performance/frontend polish
 
-The existing production smoke already records five query timings and reports p50/p95. The latest production-smoke workflow completed successfully after adding payload-size measurements and the bad-sort contract check.
-
-No optimization has been introduced without evidence.
-
-The remaining observation that cannot be automated by repository tooling is an independent human desktop/mobile visual walkthrough of the deployed Next.js UI.
+Repeated production latency remains within the measured Phase 6/8 evidence baseline. No unmeasured optimization was introduced. Repository-level frontend behavior and API cancellation/error paths were reviewed.
 
 ## Production deployment note
 
-The latest repository code is validated through GitHub workflows. Vercel has currently reported a deployment rate-limit status (`Deployment rate limited — retry in 24 hours`) for the latest frontend-changing checkpoint. This is an external deployment-capacity limitation, not a source-code test failure. Render/API production smoke continues to pass against the deployed API.
+The frontend deployment platform had reported a temporary Vercel deployment rate-limit on the latest frontend-changing checkpoint. This is external deployment capacity, not a source-code test failure. The deployed Render API production smoke passed.
 
 ## Regression coverage
 
-`tests/test_phase8_edge_cases.py` covers:
-
-- empty-result pagination;
-- combined search/filter/sort/pagination ordering;
-- out-of-range page clamping;
-- numeric equality coercion;
-- unsupported sort contract errors;
-- missing numeric values remaining unavailable rather than fabricated.
-
-`tests/test_storage.py` covers R2 pointer namespace/traversal validation.
+- `tests/test_phase8_edge_cases.py` — query correctness/edge cases.
+- `tests/test_storage.py` — R2 pointer namespace/traversal validation.
+- `tests/test_phase8_pipeline.py` — repeated refresh/idempotency and constituent replacement scenarios.
+- Existing `tests/test_injected_stock_flow.py` — newly appearing constituent/APCOTEXIND pipeline fixture behavior.
 
 ## Constraints preserved
 
