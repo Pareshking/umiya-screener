@@ -118,7 +118,7 @@ At the same time, the pipeline protects against malformed/truncated downloads. E
 
 Duplicates across the five source files are reported explicitly and deduplicated by symbol for the canonical combined universe.
 
-The final combined universe must still contain at least 700 unique symbols. The actual unique count is recorded in dataset metadata and may differ from 750.
+The final combined universe must contain at least **80% of the nominal combined baseline (600 unique symbols)**. The actual unique count is recorded in dataset metadata and may differ from 750.
 
 ## 10. Publication rule
 
