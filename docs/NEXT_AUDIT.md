@@ -1,29 +1,45 @@
-# Next Audit — Phase 6 Handoff
+# Next Audit — Phase 5 Closure
 
-Phase 5 production smoke is green. Do not repeat the completed deployment checklist unless a regression occurs.
+Phase 5 is not formally closed yet.
 
-## Phase 6 execution order
+## Single remaining action
 
-1. Measure Vercel initial page/load behaviour.
-2. Measure Render API health and cold-start behaviour.
-3. Measure screener query p50/p95.
-4. Measure numeric filter p50/p95.
-5. Measure multi-filter p50/p95.
-6. Measure sort and search p50/p95.
-7. Measure stock-detail and chart latency.
-8. Test real-device mobile UX.
-9. Test APCOTEXIND newly-injected-stock flow end-to-end.
-10. Validate data freshness/as-of presentation.
-11. Identify the actual bottleneck.
-12. Optimise only the bottleneck and rerun the same measurements.
+Verify/configure the actual Cloudflare R2 bucket lifecycle/retention policy.
 
-## Phase 7 handoff
+### Recommended initial configuration
 
-After Phase 6, address:
+```text
+Historical datasets:
+  datasets/  → expire after 30 days
+  metrics/   → expire after 30 days
 
-- R2 lifecycle/retention
-- deeper failed-refresh recovery tests
-- observability/alerts
-- stale-data operational policy
+Never expire through this rule:
+  pointers/
 
-No new Umiya modules before Screener production quality is established.
+Incomplete multipart uploads:
+  abort after 7 days
+```
+
+The 30-day value is a proposed starting point and should be confirmed against the desired rollback window.
+
+### Verification checklist
+
+- [ ] Open the actual production R2 bucket.
+- [ ] Inspect Settings → Object Lifecycle Rules.
+- [ ] Confirm historical `datasets/` retention.
+- [ ] Confirm historical `metrics/` retention.
+- [ ] Confirm `pointers/` is not accidentally covered by the delete rule.
+- [ ] Confirm the active/latest dataset remains available.
+- [ ] Configure the rule if absent or incorrect.
+- [ ] Save and re-check the final rule configuration.
+- [ ] Record the final retention period in this repository.
+
+Cloudflare's current R2 documentation supports lifecycle rules by prefix and age, and provides dashboard/Wrangler/API methods to inspect and configure them.
+
+## APCOTEXIND clarification
+
+`APCOTEXIND.NS` is a data-pipeline test fixture only. It was never intended to appear in the production frontend.
+
+## After this action
+
+Mark Phase 5 complete, then start Phase 6 with real deployed performance and UX measurements.
