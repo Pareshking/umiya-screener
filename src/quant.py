@@ -45,8 +45,9 @@ def returns(close: pd.DataFrame, windows: Sequence[int] = MOMENTUM_WINDOWS) -> p
     labels = {21: "1M Return", 63: "3M Return", 126: "6M Return", 189: "9M Return", 252: "12M Return"}
     for window in windows:
         values = _return_by_observations(close, window)
-        if window == 252:
-            values = values.fillna(0.0)
+        # Insufficient history remains NaN. It must never be converted to a
+        # neutral 0% return because that would make a new/short-history stock
+        # appear to satisfy a return filter it cannot actually satisfy.
         out[labels[window]] = values
     return out
 
