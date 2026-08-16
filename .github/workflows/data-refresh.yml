@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: "30 13 * * 1-5"
   workflow_dispatch:
+  push:
+    paths:
+      - "docs/PHASE7_STATUS.md"
 
 permissions:
   contents: read
