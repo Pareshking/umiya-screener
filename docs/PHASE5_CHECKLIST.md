@@ -1,30 +1,49 @@
 # Phase 5 — Production Readiness Checklist
 
-## Verified
+## Final status: COMPLETE
+
+### Deployment
 
 - [x] Free-first deployment architecture documented
 - [x] Scheduled weekday data-refresh workflow added
 - [x] Manual refresh dispatch supported
-- [x] Immutable R2 publication path wired
+- [x] Immutable Cloudflare R2 publication path wired
 - [x] Validation required before pointer publication
 - [x] Previous good dataset preserved on failed build
 - [x] Production R2 credentials confirmed by successful refresh
 - [x] First real manual R2 publication completed successfully
-- [x] FastAPI production service deployed/configured
-- [x] Next.js production deployment completed successfully
-- [x] Live screener query verified
+- [x] FastAPI production service deployed/configured on Render
+- [x] Next.js production deployment completed on Vercel
+- [x] Production API URL configured
+- [x] Production CORS configured/restricted to frontend origin
 
-## Remaining
+### Runtime/data
 
-- [ ] Verify `NEXT_PUBLIC_API_URL` is the intended production API URL
-- [ ] Verify fresh API instance can bootstrap from R2 without local dataset
-- [ ] Configure/verify production CORS is restricted to frontend origin
-- [ ] Verify public health endpoint and dataset status
-- [ ] Verify stock-detail deep links
-- [ ] Verify stock chart endpoint from a fresh instance
-- [ ] Verify CSV export in production
-- [ ] Measure deployed p50/p95 query latency
-- [ ] Verify mobile UX on a real device
-- [ ] Verify desktop UX
-- [ ] Verify failure/stale-data states
-- [ ] Test previous-good-dataset recovery after a failed refresh
+- [x] Fresh API runtime can hydrate published data from R2
+- [x] Public health endpoint verified
+- [x] Dataset readiness verified
+- [x] Stock detail verified
+- [x] Stock chart verified
+- [x] CSV export verified
+- [x] Immutable latest-pointer publication verified
+
+### Production validation
+
+- [x] Real NSE 750/Yahoo validation green
+- [x] Backend validation green
+- [x] Frontend production build green
+- [x] Production smoke workflow green
+- [x] Query/search/sort/filter path verified
+- [x] 400/404 error handling verified
+- [x] Vercel frontend availability verified
+- [x] APCOTEXIND newly-injected-stock test path implemented
+
+## Deferred to Phase 6/7
+
+- [ ] Detailed deployed p50/p95 performance study
+- [ ] Real-device mobile UX audit
+- [ ] Failure/stale-data scenario expansion
+- [ ] Formal R2 lifecycle/retention policy audit
+- [ ] Extended observability and recovery work
+
+These are no longer blockers for Phase 5. They belong to the next production-validation/hardening phases.
