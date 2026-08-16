@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r backend/requirements.txt
+        run: pip install -r backend/requirements.txt pytest httpx
 
       - name: Build canonical 10-year dataset
         run: python scripts/build_data.py
