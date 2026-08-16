@@ -134,11 +134,7 @@ def _ten_year_window() -> tuple[str, str]:
 
 
 def fetch_prices(symbols: Sequence[str], start: str | None = None, end: str | None = None) -> dict[str, pd.DataFrame]:
-    """Download the canonical V2 dataset: 10 years of Adjusted Close and Volume.
-
-    A broad Yahoo coverage failure is fatal. Silently turning many requested
-    symbols into all-NaN columns would otherwise publish an incomplete dataset.
-    """
+    """Download the canonical V2 dataset: 10 years of Adjusted Close and Volume."""
     tickers = [s if s.endswith(".NS") else f"{s}.NS" for s in symbols]
     if not tickers:
         return {field: pd.DataFrame() for field in PRICE_FIELDS}
@@ -198,12 +194,13 @@ def eligible_symbols(
     volume: pd.DataFrame | None = None,
     as_of: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Find stocks with sufficient price/volume history and fresh observations."""
+    """Find stocks with sufficient history and fresh price/volume observations."""
+    price_only = volume is None
     columns = ["Symbol", "History Days", "Last Price Date", "Data Age Days", "Volume Days", "Last Volume Date", "Volume Age Days"]
     if adj_close.empty:
         return pd.DataFrame(columns=columns)
     if volume is None:
-        volume = pd.DataFrame(index=adj_close.index, columns=adj_close.columns)
+        volume = adj_close
     volume = volume.reindex(index=adj_close.index, columns=adj_close.columns)
     as_of = pd.Timestamp(as_of or latest_market_date(adj_close)).normalize()
     records = []
@@ -216,18 +213,21 @@ def eligible_symbols(
         last_volume_date = pd.Timestamp(volume_series.index[-1]).normalize()
         price_age = int((as_of - last_price_date).days)
         volume_age = int((as_of - last_volume_date).days)
-        if price_age <= MAX_DATA_AGE_DAYS and volume_age <= MAX_DATA_AGE_DAYS:
-            records.append(
-                {
-                    "Symbol": symbol,
-                    "History Days": int(len(price_series)),
-                    "Last Price Date": last_price_date,
-                    "Data Age Days": price_age,
-                    "Volume Days": int(len(volume_series)),
-                    "Last Volume Date": last_volume_date,
-                    "Volume Age Days": volume_age,
-                }
-            )
+        if price_age > MAX_DATA_AGE_DAYS:
+            continue
+        if not price_only and volume_age > MAX_DATA_AGE_DAYS:
+            continue
+        records.append(
+            {
+                "Symbol": symbol,
+                "History Days": int(len(price_series)),
+                "Last Price Date": last_price_date,
+                "Data Age Days": price_age,
+                "Volume Days": int(len(volume_series)),
+                "Last Volume Date": last_volume_date,
+                "Volume Age Days": volume_age,
+            }
+        )
     return pd.DataFrame(records, columns=columns)
 
 
