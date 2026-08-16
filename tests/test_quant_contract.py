@@ -6,7 +6,9 @@ from src.quant import returns, rolling_r2, sharpe, technical_snapshot
 
 def monotonic_data(days=300):
     idx = pd.bdate_range("2025-01-01", periods=days)
-    close = pd.DataFrame({"A": np.arange(days, dtype=float) + 100.0}, index=idx)
+    # Exponential price path is exactly linear in log-price, giving a deterministic R²≈1.
+    values = np.exp(np.linspace(np.log(100.0), np.log(250.0), days))
+    close = pd.DataFrame({"A": values}, index=idx)
     volume = pd.DataFrame({"A": 1000.0}, index=idx)
     return close, volume
 
@@ -27,7 +29,7 @@ def test_12m_return_fallback_is_zero_when_history_is_short():
 def test_r2_of_linear_log_price_is_high():
     close, _ = monotonic_data()
     r2 = rolling_r2(close, 252).iloc[-1, 0]
-    assert 0.99 <= r2 <= 1.0
+    assert 0.999999 <= r2 <= 1.0
 
 
 def test_sharpe_is_finite_for_nonconstant_price_series():
