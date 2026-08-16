@@ -18,7 +18,17 @@ jobs:
       - name: Run Python tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: pytest -q
+        run: |
+          set +e
+          pytest -q 2>&1 | tee pytest.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+      - name: Upload pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log
+          path: pytest.log
       - name: Test 10-year Yahoo history — Adj Close + Volume
         if: always()
         env:
