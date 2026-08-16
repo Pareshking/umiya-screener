@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
 
+from src.config import METRICS_CACHE_PATH, METRICS_CACHE_TTL_HOURS
 from src.data import fetch_ohlcv, load_universe
 from src.quant import momentum_acceleration, momentum_score, technical_snapshot
 
 
 class ScreenerStore:
-    """In-process metric store. Expensive market-wide work happens once per refresh."""
+    """Persistent + in-process metric store.
+
+    Filtering never downloads prices or recalculates indicators. A market-wide
+    build happens only when the persistent metric cache is missing/stale or an
+    explicit refresh is requested.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -24,6 +30,12 @@ class ScreenerStore:
         with self._lock:
             if self._frame is not None and not force:
                 return self._frame.copy()
+
+            if not force:
+                cached = self._load_cache()
+                if cached is not None:
+                    self._frame, self._built_at = cached
+                    return self._frame.copy()
 
             universe = load_universe()
             data = fetch_ohlcv(universe["Symbol"].tolist(), period="2y")
@@ -41,13 +53,33 @@ class ScreenerStore:
             frame["R² 1Y"] = self._rolling_r2(close, 252).iloc[-1].reindex(frame.index)
             frame["3M Sharpe"] = self._sharpe(close, 63).iloc[-1].reindex(frame.index)
             frame["6M Sharpe"] = self._sharpe(close, 126).iloc[-1].reindex(frame.index)
-
-            # Preserve the official index membership supplied by NSE. This is
-            # intentionally not inferred from market cap or truncated to 750.
             frame = frame.reset_index()
+
+            built_at = datetime.now(timezone.utc)
+            self._save_cache(frame, built_at)
             self._frame = frame
-            self._built_at = datetime.now(timezone.utc)
+            self._built_at = built_at
             return frame.copy()
+
+    @staticmethod
+    def _load_cache() -> tuple[pd.DataFrame, datetime] | None:
+        if not METRICS_CACHE_PATH.exists():
+            return None
+        modified = datetime.fromtimestamp(METRICS_CACHE_PATH.stat().st_mtime, tz=timezone.utc)
+        if datetime.now(timezone.utc) - modified > timedelta(hours=METRICS_CACHE_TTL_HOURS):
+            return None
+        try:
+            frame = pd.read_parquet(METRICS_CACHE_PATH)
+            return frame, modified
+        except (OSError, ValueError, ImportError):
+            return None
+
+    @staticmethod
+    def _save_cache(frame: pd.DataFrame, built_at: datetime) -> None:
+        METRICS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = METRICS_CACHE_PATH.with_suffix(".tmp.parquet")
+        frame.to_parquet(tmp, index=False)
+        tmp.replace(METRICS_CACHE_PATH)
 
     @staticmethod
     def _rolling_r2(prices: pd.DataFrame, window: int) -> pd.DataFrame:
