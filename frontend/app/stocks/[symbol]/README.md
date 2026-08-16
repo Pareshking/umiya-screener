@@ -1,0 +1,1 @@
+Stock detail route is API-driven and uses the canonical precomputed dataset. It does not calculate financial metrics in the browser.
