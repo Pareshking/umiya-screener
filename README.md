@@ -5,18 +5,16 @@ A clean rebuild of the Umiya NSE quantitative screener. The existing `Pareshking
 ## Architecture
 
 ```text
-Next.js frontend
+Scheduled/offline data pipeline
+      ↓
+Precomputed analytical dataset (Parquet)
+      ↓
+FastAPI read-only query service
       ↓ JSON/HTTP
-FastAPI API
-      ↓
-Persistent + in-memory metric cache
-      ↓
-Python quantitative engine + data loaders
-      ↓
-Official NSE index constituents + Yahoo Finance OHLCV
+Next.js frontend
 ```
 
-The expensive market-wide calculation is performed only when the metric cache is missing/stale or an explicit refresh is requested. Normal filter, sort and pagination requests operate on the prepared metric table instead of rerunning the complete application.
+The API process never downloads market data and never performs a market-wide metric rebuild because a user opened the page or changed a filter. Dataset construction is an explicit offline pipeline operation (`scripts/build_metrics.py`). This separation is intentional and is a core performance requirement of V2.
 
 ## Canonical NSE 750 universe
 
@@ -45,8 +43,19 @@ The sources are stored separately and combined with an `Index` membership column
 - ATR, persistence and volume diagnostics
 - Index / industry filtering
 - Fast API-side filtering, sorting and pagination
-- Persistent Parquet metric cache
+- Persistent analytical dataset
 - Responsive desktop table + mobile stock cards
+- Explicit loading, unavailable-dataset and empty-result states
+
+## Data pipeline
+
+Build the analytical dataset from the repository root:
+
+```bash
+python scripts/build_metrics.py
+```
+
+This is a data-pipeline operation, not an API request. In production it should run on a scheduled worker and publish the resulting analytical dataset to durable shared storage accessible by the API service.
 
 ## Local development
 
@@ -54,6 +63,7 @@ The sources are stored separately and combined with an `Index` membership column
 
 ```bash
 pip install -r requirements.txt
+python scripts/build_metrics.py
 uvicorn backend.app.main:app --reload --port 8000
 ```
 
@@ -70,14 +80,16 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-The frontend contains a small demo dataset fallback, so the UI remains inspectable before the backend has finished its first market-data build.
+The frontend does **not** contain fake market data. If the API/dataset is unavailable it displays an explicit unavailable/error state instead of presenting invented stock prices or rankings.
 
 ## Deployment target
 
 - Frontend: Vercel / Next.js
 - Backend: Render / FastAPI
+- Data pipeline: separate scheduled worker
+- Analytical dataset: durable shared storage (to be selected before production deployment)
 
-`render.yaml` contains the backend service definition.
+`render.yaml` contains the current backend service definition. Production deployment is deliberately not considered complete until the data-pipeline storage path is durable and shared between the worker and API.
 
 ## Validation
 
@@ -85,7 +97,7 @@ GitHub Actions validates both the Python engine and the Next.js production build
 
 ## Reference project
 
-`Pareshking/Umiya` is used only to reproduce and validate quantitative methodology and existing product behavior. It must not be modified by this project.
+`Pareshking/Umiya` is used only to reproduce and validate quantitative methodology and existing product requirements. Streamlit architecture, rerun behavior, UI-specific caching, and other implementation limitations from the old application are not carried into this project.
 
 ## Disclaimer
 
