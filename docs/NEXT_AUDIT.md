@@ -1,64 +1,47 @@
 # Phase 8 — Next Audit / Work Plan
 
-**Status:** ACTIVE — 2026-08-16
+**Status:** COMPLETE — 2026-08-16
 
-Phase 0–7 are complete. Phase 8 improves the existing production Screener without redesigning the architecture or changing quantitative methodology.
+Phase 8 production Screener audit and evidence-backed fixes are complete. No architecture redesign or quantitative-methodology change was introduced.
 
-## 8A — Production UX audit
+## Completed
 
-- Verify current desktop/mobile Screener behavior.
-- Check loading, empty, error, READY and degraded/retry states.
-- Identify concrete usability issues only.
+### 8A — Production UX
 
-## 8B — Correctness and edge cases
+Stale query cancellation, degraded/error distinction, mobile filter search and saved-screen restoration were fixed and regression-validated. Repository-level loading/error/chart paths were reviewed.
 
-- Dynamic constituent-count changes and legitimate index membership changes.
-- Empty-result filters and combined filters.
-- Search + sort + pagination combinations.
-- Extreme numeric values and null/missing metrics.
-- Missing/insufficient history.
-- Stock detail/chart valid, missing and newly appearing symbols.
+### 8B — Correctness
 
-## 8C — Data pipeline resilience
+Dynamic universe handling, empty results, combined filters, search/sort/pagination, null metrics, numeric coercion, unsupported sorts, pagination boundaries and missing/new symbols are covered by the existing and Phase 8 regression suites.
 
-- Constituent ingestion and corporate-action handling.
-- Refresh idempotency.
-- Last-known-good behavior.
-- R2 pointer safety and lifecycle interaction.
+### 8C — Data resilience
 
-## 8D — API quality
+R2 pointer traversal/namespace validation is covered. Repeated refreshes and constituent replacement are now explicit regression scenarios. Existing controlled production refresh evidence confirms immutable publication and readiness behavior.
 
-- Schema/error semantics.
-- Request IDs and cache policy.
-- Request/response bounds and payload efficiency.
-- Regression tests for every discovered contract issue.
+### 8D — API quality
 
-## 8E — Performance/frontend polish
+Request IDs, no-store semantics, bounded requests, explicit 400 contracts and representative production payload sizes were verified. Production smoke passed.
 
-- Measure before optimizing.
-- Re-check production latency only for evidence-backed targets.
-- Mobile table usability.
-- Chart interaction and loading behavior.
+### 8E — Performance/frontend polish
 
-## 8F — Documentation/release discipline
+Repeated production query latency remains measured at p50 120 ms / p95 247 ms on the latest smoke run. No unmeasured optimization was introduced.
 
-- Keep README and status documents synchronized.
-- Keep handover prompt current.
-- Record production-facing contract changes with tests.
-- Maintain a clean release/checkpoint procedure.
+### 8F — Release discipline
 
-## Important constraints
+Phase 8 plan/status/audit/handover documentation is synchronized and this checkpoint closes Phase 8.
+
+## Remaining external observation
+
+An independent human desktop/mobile visual walkthrough on a real browser/device cannot be performed by repository automation and is therefore intentionally not represented as completed evidence.
+
+## Constraints
 
 - Screener-only scope.
 - No Streamlit.
 - No frontend financial calculations.
 - No fake financial data.
 - Adj Close + Volume remains canonical.
-- Do not silently change quantitative methodology.
-- Do not hard-code the live universe to exactly 750.
-- Do not make APCOTEXIND.NS part of production merely to satisfy a test.
-- Do not optimize without measurement.
-
-## First action for Phase 8
-
-Start with **8A + 8B together**: inspect the current deployed frontend and API behavior, then run a systematic edge-case audit before adding features. Fix concrete defects found during that audit, test them, and update documentation in the same change.
+- No silent quantitative-methodology changes.
+- Live universe is not hard-coded to exactly 750.
+- `APCOTEXIND.NS` remains a test fixture only.
+- No optimization without measurement.
