@@ -11,12 +11,84 @@ from src.data import fetch_ohlcv, load_universe
 from src.quant import momentum_acceleration, momentum_score, technical_snapshot
 
 
-class ScreenerStore:
-    """Persistent + in-process metric store.
+class MetricsCacheUnavailable(RuntimeError):
+    """Raised when the API has no prebuilt analytical dataset."""
 
-    Filtering never downloads prices or recalculates indicators. A market-wide
-    build happens only when the persistent metric cache is missing/stale or an
-    explicit refresh is requested.
+
+class MetricsCacheStale(RuntimeError):
+    """Raised when the analytical dataset is older than the configured TTL."""
+
+
+def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
+    """Build the market-wide analytical dataset.
+
+    This is an offline/data-pipeline operation. It is deliberately not called
+    by normal API queries or page loads. Use scripts/build_metrics.py or a
+    scheduled job to refresh the dataset.
+    """
+    universe = load_universe()
+    data = fetch_ohlcv(universe["Symbol"].tolist(), period="2y")
+    close, high, low, volume = (
+        data["close"], data["high"], data["low"], data["volume"]
+    )
+    if close.empty:
+        raise RuntimeError("No price data was returned for the NSE 750 universe.")
+
+    scores = momentum_score(close).iloc[-1].rename("Momentum Score")
+    accel = momentum_acceleration(close).rename("Acceleration")
+    tech = technical_snapshot(close, high, low, volume)
+    frame = universe.set_index("Symbol").join([scores, accel, tech], how="left")
+
+    frame["Industry Relative"] = frame["Momentum Score"] - frame.groupby("Industry")["Momentum Score"].transform("mean")
+    frame["Rank"] = frame["Momentum Score"].rank(
+        ascending=False, method="min", na_option="bottom"
+    ).astype("Int64")
+    frame["R² 1Y"] = _rolling_r2(close, 252).iloc[-1].reindex(frame.index)
+    frame["3M Sharpe"] = _sharpe(close, 63).iloc[-1].reindex(frame.index)
+    frame["6M Sharpe"] = _sharpe(close, 126).iloc[-1].reindex(frame.index)
+    frame = frame.reset_index()
+
+    built_at = datetime.now(timezone.utc)
+    return frame, built_at
+
+
+def write_metric_cache(frame: pd.DataFrame, built_at: datetime) -> None:
+    """Atomically publish a completed analytical dataset."""
+    METRICS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = METRICS_CACHE_PATH.with_suffix(".tmp.parquet")
+    frame.to_parquet(tmp, index=False)
+    tmp.replace(METRICS_CACHE_PATH)
+
+
+def _load_cache() -> tuple[pd.DataFrame, datetime] | None:
+    if not METRICS_CACHE_PATH.exists():
+        return None
+    modified = datetime.fromtimestamp(METRICS_CACHE_PATH.stat().st_mtime, tz=timezone.utc)
+    try:
+        frame = pd.read_parquet(METRICS_CACHE_PATH)
+    except (OSError, ValueError, ImportError):
+        return None
+    return frame, modified
+
+
+def _rolling_r2(prices: pd.DataFrame, window: int) -> pd.DataFrame:
+    logp = np.log(prices.clip(lower=0.01))
+    t = pd.Series(np.arange(len(logp), dtype=float), index=logp.index)
+    return logp.rolling(window, min_periods=max(10, int(window * 0.8))).corr(t) ** 2
+
+
+def _sharpe(prices: pd.DataFrame, window: int) -> pd.DataFrame:
+    ret = np.log(prices / prices.shift(1).replace(0, np.nan))
+    change = np.log(prices / prices.shift(window).replace(0, np.nan))
+    vol = ret.rolling(window, min_periods=max(10, int(window * 0.8))).std() * np.sqrt(window)
+    return change / vol.replace(0, np.nan)
+
+
+class ScreenerStore:
+    """Read-only serving store for the precomputed analytical dataset.
+
+    API requests never download market data and never rebuild the NSE 750
+    metrics. Dataset construction belongs to the scheduled/offline pipeline.
     """
 
     def __init__(self) -> None:
@@ -24,75 +96,24 @@ class ScreenerStore:
         self._frame: pd.DataFrame | None = None
         self._built_at: datetime | None = None
 
-    def get(self, force: bool = False) -> pd.DataFrame:
-        if self._frame is not None and not force:
+    def get(self) -> pd.DataFrame:
+        if self._frame is not None:
             return self._frame.copy()
         with self._lock:
-            if self._frame is not None and not force:
+            if self._frame is not None:
                 return self._frame.copy()
-
-            if not force:
-                cached = self._load_cache()
-                if cached is not None:
-                    self._frame, self._built_at = cached
-                    return self._frame.copy()
-
-            universe = load_universe()
-            data = fetch_ohlcv(universe["Symbol"].tolist(), period="2y")
-            close, high, low, volume = data["close"], data["high"], data["low"], data["volume"]
-
-            scores = momentum_score(close).iloc[-1].rename("Momentum Score")
-            accel = momentum_acceleration(close).rename("Acceleration")
-            tech = technical_snapshot(close, high, low, volume)
-            frame = universe.set_index("Symbol").join([scores, accel, tech], how="left")
-
-            frame["Industry Relative"] = frame["Momentum Score"] - frame.groupby("Industry")["Momentum Score"].transform("mean")
-            frame["Rank"] = frame["Momentum Score"].rank(
-                ascending=False, method="min", na_option="bottom"
-            ).astype(int)
-            frame["R² 1Y"] = self._rolling_r2(close, 252).iloc[-1].reindex(frame.index)
-            frame["3M Sharpe"] = self._sharpe(close, 63).iloc[-1].reindex(frame.index)
-            frame["6M Sharpe"] = self._sharpe(close, 126).iloc[-1].reindex(frame.index)
-            frame = frame.reset_index()
-
-            built_at = datetime.now(timezone.utc)
-            self._save_cache(frame, built_at)
-            self._frame = frame
-            self._built_at = built_at
+            cached = _load_cache()
+            if cached is None:
+                raise MetricsCacheUnavailable(
+                    "Screener dataset is not built yet. Run scripts/build_metrics.py."
+                )
+            frame, built_at = cached
+            if datetime.now(timezone.utc) - built_at > timedelta(hours=METRICS_CACHE_TTL_HOURS):
+                raise MetricsCacheStale(
+                    "Screener dataset is stale. Run scripts/build_metrics.py."
+                )
+            self._frame, self._built_at = frame, built_at
             return frame.copy()
-
-    @staticmethod
-    def _load_cache() -> tuple[pd.DataFrame, datetime] | None:
-        if not METRICS_CACHE_PATH.exists():
-            return None
-        modified = datetime.fromtimestamp(METRICS_CACHE_PATH.stat().st_mtime, tz=timezone.utc)
-        if datetime.now(timezone.utc) - modified > timedelta(hours=METRICS_CACHE_TTL_HOURS):
-            return None
-        try:
-            frame = pd.read_parquet(METRICS_CACHE_PATH)
-            return frame, modified
-        except (OSError, ValueError, ImportError):
-            return None
-
-    @staticmethod
-    def _save_cache(frame: pd.DataFrame, built_at: datetime) -> None:
-        METRICS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = METRICS_CACHE_PATH.with_suffix(".tmp.parquet")
-        frame.to_parquet(tmp, index=False)
-        tmp.replace(METRICS_CACHE_PATH)
-
-    @staticmethod
-    def _rolling_r2(prices: pd.DataFrame, window: int) -> pd.DataFrame:
-        logp = np.log(prices.clip(lower=0.01))
-        t = pd.Series(np.arange(len(logp), dtype=float), index=logp.index)
-        return logp.rolling(window, min_periods=max(10, int(window * .8))).corr(t) ** 2
-
-    @staticmethod
-    def _sharpe(prices: pd.DataFrame, window: int) -> pd.DataFrame:
-        ret = np.log(prices / prices.shift(1).replace(0, np.nan))
-        change = np.log(prices / prices.shift(window).replace(0, np.nan))
-        vol = ret.rolling(window, min_periods=max(10, int(window * .8))).std() * np.sqrt(window)
-        return change / vol.replace(0, np.nan)
 
     @property
     def built_at(self) -> datetime | None:
@@ -140,4 +161,5 @@ def query(payload) -> dict:
         "page_size": payload.page_size,
         "rows": page.to_dict(orient="records"),
         "available_filters": FILTERABLE,
+        "built_at": store.built_at.isoformat() if store.built_at else None,
     }
