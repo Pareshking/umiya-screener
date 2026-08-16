@@ -1,58 +1,79 @@
 # Umiya V2 — Data Quality & Missing-Data Policy
 
-This document is part of the V2 source of truth. It defines how the screener treats exchange calendars, partial stock history, and NSE constituent downloads.
+This document is part of the V2 source of truth. It defines exchange-calendar handling, partial stock history, freshness, and NSE constituent downloads.
 
 ## 1. Exchange holidays and weekends
 
-Weekends and exchange holidays are **not missing observations**. They normally do not appear as rows in the daily OHLCV source and must not cause a data-quality failure.
+Weekends and exchange holidays are **not missing observations**. They normally do not appear as rows in daily OHLCV data and must not cause a data-quality failure.
 
 Do not manufacture Saturday/Sunday/holiday rows merely to make the index continuous.
+
+The screener uses **one common market as-of date**: the latest valid trading date present in the downloaded universe. We do not let each stock choose a different market date.
 
 ## 2. Missing observations for individual stocks
 
 A missing price for one stock must **not delete the trading-date row for the rest of the universe**.
 
-The quantitative engine must tolerate per-symbol missing observations and calculate each metric from the valid observations available for that symbol.
+Historical interior gaps remain missing. They are not globally forward-filled.
 
-Do not globally forward-fill prices. A stale carried-forward price can create artificial zero returns and contaminate momentum, volatility and R².
+After freshness validation, a stock that is only temporarily behind the common market as-of date may have its **trailing gap** carried from its last valid close to the common as-of date. This is only to keep the entire screener on one market date; it is not general missing-data imputation.
 
 ## 3. Minimum stock history
 
 A stock is eligible for the Screener when it has at least **126 valid daily price observations**.
 
-A stock with fewer than 126 valid observations is excluded from the Screener ranking/results, but its missing history must not cause the entire pipeline to fail.
+A stock with fewer than 126 valid observations is excluded from Screener ranking/results, but its short history must not cause the entire pipeline to fail.
 
-The minimum-history rule is about **valid observations**, not calendar days.
+The minimum-history rule is about valid observations, not calendar days.
 
-## 4. Longer lookbacks
+## 4. Data freshness
+
+Every eligible stock must also have a latest valid price observation no more than **3 calendar days behind the common market as-of date**.
+
+This is deliberately checked separately from the 126-observation rule.
+
+Examples:
+
+- Market as-of Friday; stock last traded Friday → age 0 → eligible.
+- Market as-of Friday; stock last traded Thursday → age 1 → eligible.
+- Market as-of Friday; stock last traded Tuesday → age 3 → eligible.
+- Market as-of Friday; stock last traded Monday → age 4 → **not eligible**.
+
+A weekend or exchange holiday does not create a fake missing trading row. The common market as-of date remains the latest actual trading date.
+
+This prevents the incorrect behaviour of simply taking each stock's own latest price and treating it as though it represents the same market date as every other stock.
+
+## 5. Longer lookbacks
 
 Having only 126 valid observations does **not** make a stock unusable.
 
 Longer metrics may be unavailable for newer stocks. Missing longer-lookback components must not disqualify an otherwise eligible stock.
 
-For the current Umiya policy:
+Current policy:
 
-- 1M and 3M can be calculated from the available 126-day history.
-- 6M can be calculated when 126 valid observations are available.
+- 1M and 3M use available valid history when sufficient observations exist.
+- 6M is available with 126 valid observations.
 - 9M may be unavailable when sufficient history does not exist.
 - **12M RoC is explicitly defined as 0 when a full 12M history is unavailable.**
-- Missing components of the weighted momentum score contribute zero rather than causing the eligible stock to disappear.
+- Missing components of the weighted momentum score contribute zero rather than removing the eligible stock.
 
-Any future change to this policy must be an explicit methodology decision, not an accidental consequence of implementation.
+Any future change must be an explicit methodology decision, not an accidental implementation consequence.
 
-## 5. No silent data fabrication
+## 6. No silent data fabrication
 
-The following are prohibited:
+Prohibited:
 
 - fabricating prices
-- filling missing prices with arbitrary values
+- arbitrary missing-price replacement
+- silently treating an old stock price as current when it is outside the 3-day freshness limit
+- using each stock's own later date as the screener's market date
 - treating a missing 12M return as a positive/negative estimate
 - silently substituting unrelated symbols
-- silently replacing failed live data with fake values
+- silently replacing failed live market data with fake values
 
-Cached constituent files may be used when an NSE live download fails, but this must be recorded as a warning and the cached file must pass the same schema/count validation.
+The limited trailing carry described in Section 2 is permitted only after the stock passes the explicit freshness test and is recorded through `Data Age Days`.
 
-## 6. NSE constituent downloads
+## 7. NSE constituent downloads
 
 NSE constituent CSV endpoints can reject direct HTTP clients. The acquisition layer therefore uses:
 
@@ -66,7 +87,7 @@ NSE constituent CSV endpoints can reject direct HTTP clients. The acquisition la
 
 A cached fallback is acceptable for resilience, but its use must be visible in dataset diagnostics/provenance.
 
-## 7. Universe validation
+## 8. Universe validation
 
 All five constituent sources must be present and parse successfully before publishing a new universe snapshot.
 
@@ -83,7 +104,7 @@ Expected source counts:
 
 Duplicates must be reported explicitly. The pipeline must never silently truncate an oversized universe to force a count of 750.
 
-## 8. Publication rule
+## 9. Publication rule
 
 A failed or incomplete build must never replace the latest known-good analytical dataset.
 
