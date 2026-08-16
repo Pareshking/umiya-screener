@@ -18,7 +18,7 @@ def main() -> int:
     timings: list[float] = []
     payload_sizes: dict[str, int] = {}
     with httpx.Client(timeout=30, follow_redirects=True) as client:
-        def check(name: str, method: str, path: str, payload=None, expected=200):
+        def check(name: str, method: str, path: str, payload=None, expected=200, count_failure=True):
             nonlocal failures
             start = time.perf_counter()
             try:
@@ -28,26 +28,35 @@ def main() -> int:
                 payload_sizes[name] = len(r.content)
                 if r.status_code != expected:
                     print(r.text[:500])
-                    failures += 1
+                    if count_failure:
+                        failures += 1
                 return r, elapsed
             except Exception as exc:
                 print(f"{name}: ERROR {exc}")
-                failures += 1
+                if count_failure:
+                    failures += 1
                 return None, 0.0
 
-        # Render can cold-start the service. Hit readiness first so the
-        # wake-up request is allowed to complete before the cheap liveness
-        # assertion. This avoids a false-negative caused solely by request
-        # ordering while still checking both endpoints independently.
-        r, _ = check("readiness", "GET", "/api/v1/ready")
-        if r:
-            data = r.json()
-            if data.get("status") != "ready" or data.get("dataset_ready") is not True:
-                failures += 1
-
+        # Render may cold-start. Treat the first readiness attempt as a wake-up
+        # probe; after liveness confirms the service is alive, retry readiness
+        # and require the retry to establish dataset readiness.
+        r_ready, _ = check("readiness", "GET", "/api/v1/ready", count_failure=False)
         r, _ = check("liveness", "GET", "/api/v1/live")
         if r:
             if r.json().get("status") != "alive" or not r.headers.get("x-request-id"):
+                failures += 1
+
+        readiness_ok = False
+        if r_ready and r_ready.status_code == 200:
+            data = r_ready.json()
+            readiness_ok = data.get("status") == "ready" and data.get("dataset_ready") is True
+
+        if not readiness_ok:
+            r_ready, _ = check("readiness-retry", "GET", "/api/v1/ready")
+            if r_ready and r_ready.status_code == 200:
+                data = r_ready.json()
+                readiness_ok = data.get("status") == "ready" and data.get("dataset_ready") is True
+            if not readiness_ok:
                 failures += 1
 
         r, _ = check("health", "GET", "/api/v1/health")
