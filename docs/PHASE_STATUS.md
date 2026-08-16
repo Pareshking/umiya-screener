@@ -41,11 +41,16 @@ Completed 8A–8F work:
 - added repeated-refresh/idempotency regression coverage;
 - added constituent replacement/membership-change regression coverage;
 - measured production API payload sizes and repeated query latency;
-- reran deployed API contract smoke successfully;
+- hardened production smoke handling for Render cold starts;
 - synchronized Phase 8 audit, plan, status and handover documentation.
 
 The only item that cannot be truthfully automated is an independent human visual walkthrough on a real desktop/mobile browser/device. The repository and deployed API checks do not substitute for that observation.
 
+## Phase 9 — Production release & acceptance
+**IN PROGRESS — 2026-08-16.**
+
+The release checkpoint is waiting on the updated production smoke run after the cold-start handling change. Frontend, Python, data-validation and CodeQL gates are already green on the preceding run.
+
 ## Current release state
 
-The Screener is at a clean Phase 8 checkpoint. Future work should start from a concrete production requirement or measured defect rather than reopening the architecture or quantitative methodology.
+The Screener is in the final production acceptance checkpoint. No architecture redesign or quantitative-methodology change is planned for Phase 9.
