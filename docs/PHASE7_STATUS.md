@@ -47,7 +47,7 @@ Harden the already-production Screener for operational reliability without chang
 - [x] Existing screener page size is capped at 200 rows; export is bounded by the live screener universe.
 - [x] API responses are not browser-cacheable.
 - [x] No production secret is read by the frontend bundle.
-- [x] Dependabot is enabled; CodeQL and dependency-review workflows added.
+- [x] Dependabot remains enabled and CodeQL analysis covers Python and TypeScript/JavaScript.
 
 ## 7F — Disaster/recovery acceptance
 
