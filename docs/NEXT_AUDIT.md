@@ -1,68 +1,64 @@
-# Phase 7 — Production Operational Hardening Plan
+# Phase 8 — Next Audit / Work Plan
 
-**Started:** 2026-08-16
+**Status:** ACTIVE — 2026-08-16
 
-Phase 5 and Phase 6 are complete. Phase 7 is now the active workstream.
+Phase 0–7 are complete. Phase 8 improves the existing production Screener without redesigning the architecture or changing quantitative methodology.
 
-## Objective
+## 8A — Production UX audit
 
-Improve operational reliability of the deployed Screener without changing the quantitative methodology, canonical Adj Close + Volume contract, or Screener-only product scope.
+- Verify current desktop/mobile Screener behavior.
+- Check loading, empty, error, READY and degraded/retry states.
+- Identify concrete usability issues only.
 
-## 7A — Observability and readiness
+## 8B — Correctness and edge cases
 
-1. Separate liveness from readiness.
-2. Expose safe dataset freshness/build information.
-3. Add request correlation IDs where practical.
-4. Make degraded/stale states explicit and machine-readable.
+- Dynamic constituent-count changes and legitimate index membership changes.
+- Empty-result filters and combined filters.
+- Search + sort + pagination combinations.
+- Extreme numeric values and null/missing metrics.
+- Missing/insufficient history.
+- Stock detail/chart valid, missing and newly appearing symbols.
 
-## 7B — Recovery and failure containment
+## 8C — Data pipeline resilience
 
-1. Verify last-known-good metrics remain active after failed publication.
-2. Verify R2 outage behavior and local-cache fallback.
-3. Verify malformed pointer/dataset recovery.
-4. Verify temporary downloads cannot replace a valid active dataset.
+- Constituent ingestion and corporate-action handling.
+- Refresh idempotency.
+- Last-known-good behavior.
+- R2 pointer safety and lifecycle interaction.
 
-## 7C — Stale-data policy
+## 8D — API quality
 
-1. Define the maximum acceptable metrics age.
-2. Verify stale data produces a safe API state rather than being presented as current.
-3. Verify the frontend has an understandable degraded/retry path.
+- Schema/error semantics.
+- Request IDs and cache policy.
+- Request/response bounds and payload efficiency.
+- Regression tests for every discovered contract issue.
 
-## 7D — Scheduled operations
+## 8E — Performance/frontend polish
 
-1. Verify weekday refresh schedule.
-2. Verify failed refresh visibility/notification.
-3. Verify production smoke coverage after refresh.
-4. Verify R2 lifecycle retention cannot remove active pointers/current datasets.
+- Measure before optimizing.
+- Re-check production latency only for evidence-backed targets.
+- Mobile table usability.
+- Chart interaction and loading behavior.
 
-## 7E — Security and abuse resistance
+## 8F — Documentation/release discipline
 
-1. Review CORS and request handling.
-2. Review expensive export behavior.
-3. Confirm secrets never enter frontend bundles or normal logs.
-4. Review dependency/security automation.
+- Keep README and status documents synchronized.
+- Keep handover prompt current.
+- Record production-facing contract changes with tests.
+- Maintain a clean release/checkpoint procedure.
 
-## 7F — Disaster/recovery acceptance
-
-Simulate:
-
-- failed data refresh
-- unavailable R2
-- stale metrics
-- malformed active pointer
-
-Then confirm the service fails safely and recovers after the next valid publication.
-
-## Constraints
+## Important constraints
 
 - Screener-only scope.
 - No Streamlit.
 - No frontend financial calculations.
 - No fake financial data.
 - Adj Close + Volume remains canonical.
-- Do not change quantitative methodology without explicit requirement and regression coverage.
-- Prefer small, reversible operational changes.
+- Do not silently change quantitative methodology.
+- Do not hard-code the live universe to exactly 750.
+- Do not make APCOTEXIND.NS part of production merely to satisfy a test.
+- Do not optimize without measurement.
 
-## Phase 7 closure
+## First action for Phase 8
 
-Do not close Phase 7 until failure simulations, recovery checks, security review and documentation pass against the deployed production configuration.
+Start with **8A + 8B together**: inspect the current deployed frontend and API behavior, then run a systematic edge-case audit before adding features. Fix concrete defects found during that audit, test them, and update documentation in the same change.
