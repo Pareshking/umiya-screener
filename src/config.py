@@ -13,11 +13,10 @@ MOMENTUM_WINDOWS = (21, 63, 126, 189, 252)
 DEFAULT_LOOKBACK_WEIGHTS = (0.10, 0.30, 0.30, 0.20, 0.10)
 BENCHMARK = "^NSEI"
 INDEX_UNIVERSE = "NIFTY 750"
-MIN_HISTORY = 63
+# A stock must have at least 126 observations to enter the screener.
+# Longer lookbacks are allowed to be unavailable; they do not disqualify the stock.
+MIN_HISTORY = 126
 
-# Canonical NSE Indices constituent sources used to build the Umiya 750
-# research universe. Nifty 500 consists of Nifty 50 + Next 50 + Midcap 150
-# + Smallcap 250; Nifty Microcap 250 adds the next microcap segment.
 INDEX_URLS = {
     "NIFTY 50": "https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv",
     "NIFTY NEXT 50": "https://www.niftyindices.com/IndexConstituent/ind_niftynext50list.csv",
@@ -39,7 +38,19 @@ INDEX_LOCAL_PATHS = {
     for name in INDEX_URLS
 }
 
+# NSE commonly rejects plain HTTP clients. Keep browser-like headers and
+# prime a session against the NSE site before requesting constituent CSVs.
 HTTP_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-    "Accept": "text/csv,text/plain,*/*",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/csv,text/plain,application/json;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.niftyindices.com/",
+    "Connection": "keep-alive",
 }
+NSE_HOME_URL = "https://www.niftyindices.com/"
+NSE_REQUEST_TIMEOUT = 30
+NSE_REQUEST_RETRIES = 3
