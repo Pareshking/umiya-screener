@@ -27,6 +27,9 @@ INDEX_URLS = {
     "NIFTY MICROCAP 250": "https://www.niftyindices.com/IndexConstituent/ind_niftymicrocap250_list.csv",
 }
 
+# These are baseline/reference counts, not hard requirements. NSE can have
+# legitimate constituent-count changes (for example, additional securities
+# such as a DVR can make the security count exceed the nominal company count).
 EXPECTED_INDEX_COUNTS = {
     "NIFTY 50": 50,
     "NIFTY NEXT 50": 50,
@@ -34,6 +37,12 @@ EXPECTED_INDEX_COUNTS = {
     "NIFTY SMALLCAP 250": 250,
     "NIFTY MICROCAP 250": 250,
 }
+
+# Protect the pipeline from publishing a catastrophically incomplete NSE
+# constituent file while still allowing legitimate count changes above this
+# floor. A source returning less than 80% of its normal size is treated as a
+# structural/source failure rather than a normal reconstitution.
+INDEX_COUNT_MIN_RATIO = 0.80
 
 INDEX_LOCAL_PATHS = {
     name: DATA_DIR / "indices" / f"{name.lower().replace(' ', '_')}.csv"
