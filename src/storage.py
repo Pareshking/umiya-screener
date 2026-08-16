@@ -31,7 +31,13 @@ class ObjectStoreConfig:
 
 def _client(store: ObjectStoreConfig):
     import boto3
-    return boto3.client("s3", endpoint_url=store.endpoint_url, aws_access_key_id=store.access_key_id, aws_secret_access_key=store.secret_access_key, region_name=store.region)
+    return boto3.client(
+        "s3",
+        endpoint_url=store.endpoint_url,
+        aws_access_key_id=store.access_key_id,
+        aws_secret_access_key=store.secret_access_key,
+        region_name=store.region,
+    )
 
 
 def upload_directory(store: ObjectStoreConfig, local_dir: Path, prefix: str) -> list[str]:
@@ -47,18 +53,30 @@ def upload_directory(store: ObjectStoreConfig, local_dir: Path, prefix: str) -> 
 
 
 def publish_pointer(store: ObjectStoreConfig, pointer_key: str, target: str) -> None:
-    _client(store).put_object(Bucket=store.bucket, Key=pointer_key, Body=target.encode("utf-8"), ContentType="application/json")
+    """Publish a pointer in the same JSON shape consumed by read_pointer."""
+    body = json.dumps({"prefix": target.rstrip("/")}).encode("utf-8")
+    _client(store).put_object(Bucket=store.bucket, Key=pointer_key, Body=body, ContentType="application/json")
 
 
 def read_pointer(store: ObjectStoreConfig, pointer_key: str) -> str:
     body = _client(store).get_object(Bucket=store.bucket, Key=pointer_key)["Body"].read()
-    prefix = json.loads(body.decode("utf-8")).get("prefix")
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Invalid object-store pointer: {pointer_key}") from exc
+    prefix = payload.get("prefix")
     if not isinstance(prefix, str) or not prefix.strip():
         raise RuntimeError(f"Invalid object-store pointer: {pointer_key}")
     return prefix
 
 
 def download_prefix(store: ObjectStoreConfig, prefix: str, destination: Path) -> int:
+    """Download a complete prefix into a temporary destination.
+
+    The caller should publish its local pointer only after this function returns
+    successfully and validates the required files. A zero-object prefix is
+    rejected so a remote outage cannot look like a valid empty dataset.
+    """
     client = _client(store)
     destination.mkdir(parents=True, exist_ok=True)
     count = 0
@@ -74,4 +92,6 @@ def download_prefix(store: ObjectStoreConfig, prefix: str, destination: Path) ->
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(client.get_object(Bucket=store.bucket, Key=key)["Body"].read())
             count += 1
+    if count == 0:
+        raise RuntimeError(f"Object-store prefix is empty: {prefix}")
     return count
