@@ -20,6 +20,7 @@ from .config import (
     NSE_HOME_URL,
     NSE_REQUEST_RETRIES,
     NSE_REQUEST_TIMEOUT,
+    UNIVERSE_MIN_RATIO,
 )
 
 PRICE_FIELDS = ("adj_close", "volume")
@@ -103,8 +104,13 @@ def load_universe() -> pd.DataFrame:
     universe = pd.concat(frames, ignore_index=True)
     duplicate_symbols = universe.loc[universe["Symbol"].duplicated(keep=False), "Symbol"].unique()
     universe = universe.drop_duplicates("Symbol", keep="first").reset_index(drop=True)
-    if len(universe) < 700:
-        raise ValueError(f"NSE 750 universe is unexpectedly incomplete. Parsed {len(universe)} symbols.")
+    expected_total = sum(EXPECTED_INDEX_COUNTS.values())
+    minimum_total = ceil(expected_total * UNIVERSE_MIN_RATIO)
+    if len(universe) < minimum_total:
+        raise ValueError(
+            f"NSE 750 universe is unexpectedly incomplete. Parsed {len(universe)} unique symbols; "
+            f"at least {minimum_total} are required"
+        )
     universe.attrs["source_counts"] = {name: int((universe["Index"] == name).sum()) for name in INDEX_URLS}
     universe.attrs["duplicate_symbols"] = [str(x) for x in duplicate_symbols]
     universe.attrs["warnings"] = errors
