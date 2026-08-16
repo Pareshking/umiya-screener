@@ -29,15 +29,19 @@ jobs:
           import json
           import pandas as pd
           import yfinance as yf
-          from src.data import HISTORY_PERIOD, load_universe
+          from src.data import _ten_year_window, load_universe
 
           out = Path("data_cache/yahoo_10y_history_test")
           out.mkdir(parents=True, exist_ok=True)
+          start, end = _ten_year_window()
           universe = load_universe()
           symbols = universe["Symbol"].dropna().astype(str).str.upper().drop_duplicates().tolist()
+          if len(symbols) != 750:
+              raise RuntimeError(f"Expected 750 universe symbols, got {len(symbols)}")
           tickers = [f"{s}.NS" for s in symbols]
           print(f"Universe symbols: {len(symbols)}")
-          raw = yf.download(tickers, period=HISTORY_PERIOD, auto_adjust=False, actions=False, progress=True, group_by="column", threads=True)
+          print(f"Exact Yahoo window: {start} through {end} (end exclusive)")
+          raw = yf.download(tickers, start=start, end=end, auto_adjust=False, actions=False, progress=True, group_by="column", threads=True)
           if raw.empty:
               raise RuntimeError("Yahoo returned an empty dataset")
           if not isinstance(raw.columns, pd.MultiIndex):
@@ -54,6 +58,8 @@ jobs:
           vol = vol.reindex(columns=symbols)
           adj.index = pd.to_datetime(adj.index).tz_localize(None)
           vol.index = pd.to_datetime(vol.index).tz_localize(None)
+          if adj.index.min() < pd.Timestamp(start):
+              raise RuntimeError("Yahoo returned data before the requested 10-year start date")
           report = pd.DataFrame({
               "AdjCloseDays": adj.notna().sum(),
               "VolumeDays": vol.notna().sum(),
@@ -68,7 +74,8 @@ jobs:
           adj.to_parquet(out / "adj_close.parquet")
           vol.to_parquet(out / "volume.parquet")
           summary = {
-              "history_period": HISTORY_PERIOD,
+              "start": start,
+              "end_exclusive": end,
               "universe_symbols": len(symbols),
               "yahoo_columns": len(adj.columns),
               "date_rows": len(adj.index),
