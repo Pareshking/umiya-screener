@@ -1,0 +1,1 @@
+R2 credentials are stored only as GitHub Actions repository secrets.
