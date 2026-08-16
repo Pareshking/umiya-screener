@@ -19,7 +19,7 @@
 
 ## Requires connected production accounts
 
-- [ ] Configure production R2 secrets in GitHub Actions
+- [x] Configure production R2 secrets in GitHub Actions
 - [ ] Run first real scheduled/manual R2 publication
 - [ ] Deploy FastAPI to Render
 - [ ] Deploy Next.js to Vercel
