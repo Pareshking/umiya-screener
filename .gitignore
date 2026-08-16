@@ -8,8 +8,12 @@ venv/
 .env
 .env.*
 !.env.example
-.streamlit/secrets.toml
+.streamlit/
 data_cache/
 *.parquet
 .DS_Store
 Thumbs.db
+
+frontend/node_modules/
+frontend/.next/
+frontend/out/
