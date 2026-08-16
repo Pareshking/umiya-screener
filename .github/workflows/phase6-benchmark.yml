@@ -1,0 +1,32 @@
+name: phase6-benchmark
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 15 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install benchmark dependency
+        run: python -m pip install --disable-pip-version-check httpx
+      - name: Run Phase 6 production benchmark
+        env:
+          PRODUCTION_API_URL: https://umiya-screener-api.onrender.com
+          PRODUCTION_FRONTEND_URL: https://pareshpatel.vercel.app
+          PHASE6_OUTPUT: phase6-benchmark.csv
+        run: python scripts/phase6_benchmark.py
+      - name: Upload benchmark measurements
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase6-benchmark-${{ github.run_id }}
+          path: phase6-benchmark.csv
