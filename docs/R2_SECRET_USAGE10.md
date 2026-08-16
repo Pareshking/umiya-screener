@@ -1,0 +1,1 @@
+R2 secrets are GitHub Actions repository secrets and are not committed.
