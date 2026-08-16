@@ -23,11 +23,11 @@ The screener uses **one common market as-of date**: the latest valid trading dat
 
 ## 3. Missing observations for individual stocks
 
-A missing price for one stock must **not delete the trading-date row for the rest of the universe**.
+A missing price or volume observation for one stock must **not delete the trading-date row for the rest of the universe**.
 
-Historical interior gaps remain missing. They are not globally forward-filled.
+Historical gaps and trailing gaps remain missing. **V2 does not forward-fill or otherwise impute market prices/volume.**
 
-After freshness validation, a stock that is only temporarily behind the common market as-of date may have its **trailing gap** carried from its last valid adjusted close to the common as-of date. This is only to keep the entire screener on one market date; it is not general missing-data imputation and is never used for an ineligible stock.
+A stock may still be eligible when its latest valid observation is behind the common market date, provided it passes the explicit freshness limit. The dataset records that age rather than fabricating an observation.
 
 ## 4. Minimum stock history
 
@@ -76,13 +76,14 @@ Prohibited:
 
 - fabricating prices
 - arbitrary missing-price replacement
+- forward-filling prices or volume
 - silently treating an old stock price as current when it is outside the 3-day freshness limit
 - using each stock's own later date as the screener's market date
 - treating a missing 12M return as a positive/negative estimate
 - silently substituting unrelated symbols
 - silently replacing failed live market data with fake values
 
-The limited trailing carry described in Section 3 is permitted only after the stock passes the explicit freshness test and is recorded through `Data Age Days`.
+Freshness is a qualification rule, not permission to manufacture a current observation.
 
 ## 8. NSE constituent downloads
 
