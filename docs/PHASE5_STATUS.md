@@ -6,7 +6,9 @@ Phase 5 production deployment and hardening are formally closed.
 
 ## Final housekeeping gate — completed
 
-Cloudflare R2 lifecycle/retention policy was configured and verified in the production bucket:
+**Manual production verification:** The Cloudflare R2 production bucket lifecycle/retention configuration was manually inspected and confirmed **OK** on 2026-08-16.
+
+Verified production policy:
 
 - `datasets/` → 30-day retention for historical immutable dataset versions
 - `metrics/` → 30-day retention for historical immutable metric versions
@@ -14,6 +16,8 @@ Cloudflare R2 lifecycle/retention policy was configured and verified in the prod
 - incomplete multipart uploads → 7-day cleanup
 
 The active/latest pointer remains protected by the publication design and is not subject to the historical dataset expiration rule.
+
+This manual verification closes the final originally pending Phase 5 housekeeping item. The repository does not claim that this bucket-console inspection was automated.
 
 ## Production validation
 
