@@ -1,0 +1,1 @@
+Do not commit R2 credentials. GitHub Actions repository secrets are the production credential source.
