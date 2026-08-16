@@ -1,0 +1,1 @@
+R2 credentials remain in GitHub Actions repository secrets and are injected only into the publication step.

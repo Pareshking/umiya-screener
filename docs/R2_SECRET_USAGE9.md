@@ -1,0 +1,1 @@
+GitHub Actions injects R2 credentials at runtime; no credential is committed.

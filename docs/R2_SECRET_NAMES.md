@@ -1,0 +1,1 @@
+Production GitHub Actions R2 secrets: S3_ENDPOINT_URL, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY.

@@ -1,0 +1,1 @@
+The scheduled data refresh workflow reads only GitHub Actions repository secrets for R2. No R2 credential belongs in source control.

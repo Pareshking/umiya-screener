@@ -1,0 +1,1 @@
+R2 production credentials are supplied via GitHub Actions secrets.
