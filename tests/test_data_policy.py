@@ -18,7 +18,7 @@ def test_ten_year_window_is_explicit():
 
 
 def test_eligibility_uses_common_as_of_and_three_day_freshness():
-    dates = pd.bdate_range("2026-01-01", periods=130)
+    dates = pd.date_range("2026-01-01", periods=130, freq="D")
     close = pd.DataFrame(index=dates)
     close["FRESH"] = 100.0
     close["ONE_DAY_OLD"] = 100.0
@@ -55,6 +55,6 @@ def test_trailing_alignment_does_not_fill_interior_gaps():
     frame = pd.DataFrame({"A": [1.0, pd.NA, 3.0, pd.NA, pd.NA]}, index=dates)
     aligned = align_trailing_to_as_of(frame, ["A"], dates[-1])
     assert pd.isna(aligned.loc[dates[1], "A"])
-    assert pd.isna(aligned.loc[dates[3], "A"]) is False
+    assert not pd.isna(aligned.loc[dates[3], "A"])
     assert aligned.loc[dates[3], "A"] == 3.0
     assert aligned.loc[dates[4], "A"] == 3.0
