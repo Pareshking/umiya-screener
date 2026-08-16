@@ -1,0 +1,64 @@
+name: scheduled-data-refresh
+
+on:
+  schedule:
+    # 7:00 PM IST, Monday-Friday (12:30 UTC).
+    - cron: "30 13 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build canonical 10-year dataset
+        run: python scripts/build_data.py
+
+      - name: Validate generated dataset
+        run: python -m pytest tests -q
+
+      - name: Find latest dataset
+        id: dataset
+        shell: bash
+        run: echo "path=$(python - <<'PY'
+from pathlib import Path
+import json
+root=Path('data_cache/price_history')
+name=json.loads((root/'LATEST.json').read_text())['dataset']
+print(root/name)
+PY
+)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish immutable dataset to R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          DATASET_PATH: ${{ steps.dataset.outputs.path }}
+        run: |
+          test -n "$R2_ACCOUNT_ID" || (echo "Missing R2_ACCOUNT_ID secret" && exit 1)
+          test -n "$R2_ACCESS_KEY_ID" || (echo "Missing R2_ACCESS_KEY_ID secret" && exit 1)
+          test -n "$R2_SECRET_ACCESS_KEY" || (echo "Missing R2_SECRET_ACCESS_KEY secret" && exit 1)
+          test -n "$R2_BUCKET" || (echo "Missing R2_BUCKET secret" && exit 1)
+          PREFIX="datasets/$(basename "$DATASET_PATH")"
+          python scripts/publish_r2.py --dataset "$DATASET_PATH" --prefix "$PREFIX" --pointer "pointers/latest-price-dataset.json"
