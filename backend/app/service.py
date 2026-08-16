@@ -160,28 +160,46 @@ FILTERABLE = [
 ]
 
 
+def _apply_filter(frame: pd.DataFrame, field: str, op: str, value) -> pd.DataFrame:
+    if field not in frame.columns:
+        return frame
+    s = frame[field]
+    if op == "in":
+        values = value if isinstance(value, list) else [value]
+        return frame[s.isin(values)]
+    if op == "=":
+        return frame[s == value]
+    numeric = pd.to_numeric(s, errors="coerce")
+    v = float(value)
+    masks = {">": numeric > v, ">=": numeric >= v, "<": numeric < v, "<=": numeric <= v}
+    return frame[masks[op]]
+
+
 def query(payload) -> dict:
     frame = store.get()
+
+    search = (payload.search or "").strip().casefold()
+    if search:
+        symbol = frame["Symbol"].astype(str).str.casefold()
+        company = frame["Company Name"].astype(str).str.casefold()
+        frame = frame[symbol.str.contains(search, regex=False, na=False) | company.str.contains(search, regex=False, na=False)]
+
     for flt in payload.filters:
-        field = flt.field
-        if field not in frame.columns:
-            continue
-        s = frame[field]
-        op, value = flt.operator, flt.value
-        if op == "in":
-            values = value if isinstance(value, list) else [value]
-            frame = frame[s.isin(values)]
-        elif op == "=":
-            frame = frame[s == value]
-        else:
-            numeric = pd.to_numeric(s, errors="coerce")
-            v = float(value)
-            masks = {">": numeric > v, ">=": numeric >= v, "<": numeric < v, "<=": numeric <= v}
-            frame = frame[masks[op]]
+        frame = _apply_filter(frame, flt.field, flt.operator, flt.value)
+
     field = payload.sort.field if payload.sort.field in frame.columns else "Rank"
-    frame = frame.sort_values(field, ascending=payload.sort.direction == "asc", na_position="last")
+    frame = frame.sort_values(field, ascending=payload.sort.direction == "asc", na_position="last", kind="stable")
     total = len(frame)
+    pages = max(1, (total + payload.page_size - 1) // payload.page_size)
     start = (payload.page - 1) * payload.page_size
     page = frame.iloc[start:start + payload.page_size].copy()
     page = page.replace({np.nan: None})
-    return {"total": total, "page": payload.page, "page_size": payload.page_size, "rows": page.to_dict(orient="records"), "available_filters": FILTERABLE, "built_at": store.built_at.isoformat() if store.built_at else None}
+    return {
+        "total": total,
+        "page": payload.page,
+        "page_size": payload.page_size,
+        "pages": pages,
+        "rows": page.to_dict(orient="records"),
+        "available_filters": FILTERABLE,
+        "built_at": store.built_at.isoformat() if store.built_at else None,
+    }
