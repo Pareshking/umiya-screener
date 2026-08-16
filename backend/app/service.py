@@ -17,8 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 PRICE_ROOT = ROOT / "data_cache" / "price_history"
 METRICS_ROOT = ROOT / "data_cache" / "metrics"
 
+
 class MetricsCacheUnavailable(RuntimeError):
     pass
+
 
 class MetricsCacheStale(RuntimeError):
     pass
@@ -31,6 +33,8 @@ def _load_phase1_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd
     try:
         dataset_name = json.loads(pointer.read_text(encoding="utf-8"))["dataset"]
         dataset = PRICE_ROOT / dataset_name
+        if not dataset.is_dir():
+            raise FileNotFoundError(dataset)
         close = pd.read_parquet(dataset / "adj_close.parquet")
         volume = pd.read_parquet(dataset / "volume.parquet")
         eligibility = pd.read_parquet(dataset / "eligibility.parquet")
@@ -38,6 +42,9 @@ def _load_phase1_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd
         metadata = json.loads((dataset / "metadata.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, ImportError, KeyError, json.JSONDecodeError) as exc:
         raise MetricsCacheUnavailable("Published Phase 1 dataset cannot be read.") from exc
+    required_metadata = {"market_as_of", "built_at_utc", "schema_version"}
+    if not required_metadata.issubset(metadata):
+        raise MetricsCacheUnavailable("Published Phase 1 dataset metadata is incomplete.")
     return close, volume, eligibility, universe, metadata
 
 
@@ -51,14 +58,17 @@ def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
     acceleration = momentum_acceleration(close).rename("Acceleration")
     technical = technical_snapshot(close, volume)
     frame = universe.set_index("Symbol").reindex(symbols).join([scores, acceleration, technical], how="left")
-    frame = frame.join(eligibility.set_index("Symbol")[["Last Price Date", "Data Age Days"]], how="left")
+    frame = frame.join(
+        eligibility.set_index("Symbol")[["Last Price Date", "Data Age Days", "Last Volume Date", "Volume Age Days"]],
+        how="left",
+    )
     frame["Industry Relative"] = industry_relative(frame["Momentum Score"], universe)
     frame["Rank"] = frame["Momentum Score"].rank(ascending=False, method="min", na_option="bottom").astype("Int64")
     frame["R² 1Y"] = rolling_r2(close, 252).iloc[-1].reindex(frame.index)
     frame["3M Sharpe"] = sharpe(close, 63).iloc[-1].reindex(frame.index)
     frame["6M Sharpe"] = sharpe(close, 126).iloc[-1].reindex(frame.index)
     frame["Market As Of"] = pd.Timestamp(metadata["market_as_of"])
-    frame["Dataset Schema"] = metadata.get("schema_version", "1.1")
+    frame["Dataset Schema"] = metadata.get("schema_version", "1.2")
     return frame.reset_index(), datetime.now(timezone.utc)
 
 
@@ -70,7 +80,13 @@ def write_metric_cache(frame: pd.DataFrame, built_at: datetime) -> None:
     candidate.mkdir(parents=True, exist_ok=False)
     try:
         frame.to_parquet(candidate / "screener_metrics.parquet", index=False)
-        metadata = {"schema_version": "2.0", "built_at_utc": built_at.isoformat(), "rows": int(len(frame)), "market_as_of": str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None, "source_contract": ["adj_close", "volume"]}
+        metadata = {
+            "schema_version": "2.0",
+            "built_at_utc": built_at.isoformat(),
+            "rows": int(len(frame)),
+            "market_as_of": str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None,
+            "source_contract": ["adj_close", "volume"],
+        }
         (candidate / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         candidate.replace(target)
     except Exception:
@@ -86,20 +102,41 @@ def write_metric_cache(frame: pd.DataFrame, built_at: datetime) -> None:
     tmp.replace(METRICS_CACHE_PATH)
 
 
+def _validate_metric_dataset(dataset: Path) -> bool:
+    required = ("screener_metrics.parquet", "metadata.json")
+    if not dataset.is_dir() or any(not (dataset / name).is_file() for name in required):
+        return False
+    try:
+        metadata = json.loads((dataset / "metadata.json").read_text(encoding="utf-8"))
+        if not metadata.get("built_at_utc") or metadata.get("source_contract") != ["adj_close", "volume"]:
+            return False
+        frame = pd.read_parquet(dataset / "screener_metrics.parquet")
+        return not frame.empty and {"Symbol", "Momentum Score", "Market As Of"}.issubset(frame.columns)
+    except (OSError, ValueError, ImportError, KeyError, json.JSONDecodeError):
+        return False
+
+
 def _sync_remote_metrics() -> bool:
     try:
         store = ObjectStoreConfig.from_env()
         prefix = read_pointer(store, "pointers/latest-metrics-dataset.json")
         dataset_name = prefix.rstrip("/").split("/")[-1]
         target = METRICS_ROOT / dataset_name
-        if not (target / "screener_metrics.parquet").exists():
+        if not _validate_metric_dataset(target):
             tmp = METRICS_ROOT / f".{dataset_name}.tmp"
             import shutil
             shutil.rmtree(tmp, ignore_errors=True)
             download_prefix(store, prefix, tmp)
+            if not _validate_metric_dataset(tmp):
+                shutil.rmtree(tmp, ignore_errors=True)
+                return False
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
             tmp.replace(target)
         pointer = METRICS_ROOT / "LATEST.json"
-        pointer.write_text(json.dumps({"dataset": dataset_name}), encoding="utf-8")
+        pointer_tmp = METRICS_ROOT / "LATEST.tmp.json"
+        pointer_tmp.write_text(json.dumps({"dataset": dataset_name}), encoding="utf-8")
+        pointer_tmp.replace(pointer)
         return True
     except Exception:
         return False
@@ -110,14 +147,22 @@ def _load_cache() -> tuple[pd.DataFrame, datetime] | None:
     if pointer.exists():
         try:
             dataset_name = json.loads(pointer.read_text(encoding="utf-8"))["dataset"]
-            path = METRICS_ROOT / dataset_name / "screener_metrics.parquet"
-            metadata = json.loads((METRICS_ROOT / dataset_name / "metadata.json").read_text(encoding="utf-8"))
-            built_at = datetime.fromisoformat(metadata["built_at_utc"])
-            return pd.read_parquet(path), built_at
+            dataset = METRICS_ROOT / dataset_name
+            if _validate_metric_dataset(dataset):
+                metadata = json.loads((dataset / "metadata.json").read_text(encoding="utf-8"))
+                built_at = datetime.fromisoformat(metadata["built_at_utc"])
+                return pd.read_parquet(dataset / "screener_metrics.parquet"), built_at
         except (OSError, ValueError, ImportError, KeyError, json.JSONDecodeError):
             pass
     if _sync_remote_metrics():
-        return _load_cache()
+        pointer = METRICS_ROOT / "LATEST.json"
+        try:
+            dataset_name = json.loads(pointer.read_text(encoding="utf-8"))["dataset"]
+            dataset = METRICS_ROOT / dataset_name
+            metadata = json.loads((dataset / "metadata.json").read_text(encoding="utf-8"))
+            return pd.read_parquet(dataset / "screener_metrics.parquet"), datetime.fromisoformat(metadata["built_at_utc"])
+        except (OSError, ValueError, ImportError, KeyError, json.JSONDecodeError):
+            pass
     if not METRICS_CACHE_PATH.exists():
         return None
     modified = datetime.fromtimestamp(METRICS_CACHE_PATH.stat().st_mtime, tz=timezone.utc)
@@ -134,11 +179,18 @@ class ScreenerStore:
         self._built_at: datetime | None = None
 
     def get(self) -> pd.DataFrame:
-        if self._frame is not None:
-            return self._frame.copy()
-        with self._lock:
-            if self._frame is not None:
+        if self._frame is not None and self._built_at is not None:
+            if datetime.now(timezone.utc) - self._built_at <= timedelta(hours=METRICS_CACHE_TTL_HOURS):
                 return self._frame.copy()
+            with self._lock:
+                self._frame = None
+                self._built_at = None
+        with self._lock:
+            if self._frame is not None and self._built_at is not None:
+                if datetime.now(timezone.utc) - self._built_at <= timedelta(hours=METRICS_CACHE_TTL_HOURS):
+                    return self._frame.copy()
+                self._frame = None
+                self._built_at = None
             cached = _load_cache()
             if cached is None:
                 raise MetricsCacheUnavailable("Screener dataset is not available. Configure R2 or run scripts/build_metrics.py.")
@@ -151,6 +203,7 @@ class ScreenerStore:
     @property
     def built_at(self) -> datetime | None:
         return self._built_at
+
 
 store = ScreenerStore()
 
