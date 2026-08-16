@@ -63,9 +63,14 @@ def test_r2_of_linear_log_price_is_one():
 
 def test_sharpe_matches_annualized_log_return_definition():
     close, _ = monotonic_data()
+    # A perfectly constant log-return stream has zero volatility by definition.
+    # Add a deterministic small oscillation so the Sharpe denominator is non-zero.
+    t = np.arange(len(close), dtype=float)
+    close["A"] *= np.exp(0.001 * np.sin(t / 7.0))
     result = sharpe(close, 126).iloc[-1, 0]
     logret = np.log(close["A"] / close["A"].shift(1))
     expected = np.log(close.iloc[-1, 0] / close.iloc[-127, 0]) / (logret.rolling(126).std().iloc[-1] * np.sqrt(126))
+    assert np.isfinite(result)
     assert np.isclose(result, expected, rtol=1e-10, atol=1e-10)
 
 
