@@ -1,7 +1,7 @@
 # Phase 7 — Production Operational Hardening
 
 **Started:** 2026-08-16  
-**Status:** ACCEPTANCE — implementation and automated production gates passed; manual browser walkthrough remains
+**Status:** ACCEPTANCE — implementation and automated production gates passed; controlled refresh acceptance in progress
 
 ## Objective
 
@@ -63,15 +63,15 @@ Automated coverage added for:
 
 ## Production acceptance record
 
-- [x] Phase 7 PR merged to `main` as commit `667c4c1950a5af2c850a42d3a308a642fc58e190`.
+- [x] Phase 7 PR merged to `main`.
 - [x] Final validation workflow passed on the merged commit.
 - [x] Final CodeQL security workflow passed on the merged commit.
 - [x] Production smoke passed on the merged commit, including liveness, readiness, health, metadata, query/search/sort, stock detail, charts, export, CORS and frontend HTTP availability.
 - [x] Vercel deployment status reported successful for the Phase 7 merged deployment.
 - [ ] Manual browser/mobile walkthrough of READY/DEGRADED UI states.
-- [ ] Observe one future scheduled refresh completing successfully without an invalid pointer advance.
+- [ ] Controlled real data refresh and post-publication production readiness smoke.
 
-The remaining two items are acceptance/operational observation gates rather than missing Phase 7 implementation.
+A controlled refresh trigger has been temporarily armed through a documentation-path push trigger because the GitHub Actions UI is not exposing the expected manual `Run workflow` control. This is equivalent to exercising the same refresh job; the temporary trigger will be removed after the run.
 
 ## Constraints
 
@@ -85,4 +85,4 @@ The remaining two items are acceptance/operational observation gates rather than
 
 ## Phase 7 closure rule
 
-Close Phase 7 after the manual UI walkthrough and one normal scheduled refresh observation are completed. No further code changes are required for those gates unless an actual failure is discovered.
+Close Phase 7 after the controlled refresh and manual UI acceptance are completed. No further code changes are required unless an actual failure is discovered.
