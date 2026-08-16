@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,8 +22,14 @@ def health() -> dict:
 @app.get("/api/v1/screener/metadata")
 def metadata() -> dict:
     frame = store.get()
+    source_counts = {
+        str(index): int(count)
+        for index, count in frame["Index"].value_counts().to_dict().items()
+    }
     return {
         "universe": len(frame),
+        "universe_name": "NIFTY 750",
+        "source_counts": source_counts,
         "industries": sorted(frame["Industry"].dropna().astype(str).unique().tolist()),
         "filters": FILTERABLE,
         "built_at": store.built_at.isoformat() if store.built_at else None,
