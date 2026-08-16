@@ -77,7 +77,10 @@ def validate_pointer_prefix(prefix: str, expected_root: str) -> str:
     used by the caller and reject traversal-like components so a compromised or
     malformed pointer cannot redirect dataset hydration to another prefix.
     """
-    value = prefix.strip().replace("\\", "/")
+    raw = prefix.strip()
+    if raw.startswith(("/", "\\")):
+        raise RuntimeError(f"Invalid object-store pointer target: {prefix}")
+    value = raw.replace("\\", "/")
     root = expected_root.strip("/")
     parts = [part for part in value.split("/") if part]
     if not parts or parts[0] != root or any(part in {".", ".."} for part in parts):
