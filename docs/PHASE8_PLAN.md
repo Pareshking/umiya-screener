@@ -1,7 +1,7 @@
 # Phase 8 — Production Screener Evolution Plan
 
 **Started:** 2026-08-16  
-**Status:** ACTIVE
+**Status:** ACTIVE — 8A/8B in progress
 
 ## Objective
 
@@ -9,27 +9,28 @@ Improve the existing production Screener based on evidence from real usage and s
 
 ## 8A — Production UX audit
 
-- Audit desktop and mobile Screener layout.
-- Verify loading, empty, error, READY and degraded/retry states.
-- Check table usability, search/filter controls, pagination, export and stock-detail navigation.
-- Identify concrete UX defects before changing UI behavior.
+- [x] Inspect current production Screener frontend structure and error/loading/degraded paths.
+- [x] Inspect stock-detail loading/error/chart cancellation behavior.
+- [x] Identify stale-response race in the main Screener query path.
+- [x] Fix stale-response race using per-query `AbortController` cancellation.
+- [ ] Complete production browser/mobile walkthrough.
 
 ## 8B — Correctness and edge-case audit
 
-Test:
+Reviewed and/or covered in the current implementation:
 
-- dynamic constituent counts;
-- legitimate index membership/corporate-action changes;
-- empty-result filters;
-- combined filters;
-- search + sort + pagination;
-- null/missing metric values;
-- extreme numeric values;
-- insufficient historical observations;
-- valid, missing and newly appearing stock symbols;
-- chart ranges and insufficient chart history.
-
-Expected behavior must follow the canonical data contract. Missing data remains missing; no fabricated returns.
+- [x] dynamic constituent counts are data-driven;
+- [x] legitimate index membership/corporate-action changes are not forced to exactly 750 rows;
+- [x] empty-result filters have an explicit UI state;
+- [x] combined filters are applied server-side in sequence;
+- [x] search + sort + pagination are server-side;
+- [x] null/missing metric values remain null/blank;
+- [x] extreme numeric filter values are handled through numeric coercion and empty results where appropriate;
+- [x] insufficient historical observations remain unavailable rather than fabricated;
+- [x] missing/new symbols are rejected unless present in the current eligible universe;
+- [x] chart ranges are bounded by the API;
+- [ ] add/execute dedicated regression coverage for pagination boundaries and edge-case query combinations;
+- [ ] verify real production edge cases after the next validation run.
 
 ## 8C — Data pipeline resilience
 
@@ -56,7 +57,7 @@ Review:
 - export bounds;
 - unnecessary fields or duplicate work.
 
-Every contract change gets regression coverage and documentation.
+Known observation: unsupported sort fields currently fall back to `Rank`. Review whether this should become an explicit validation error as part of 8D; do not change it solely for cosmetic strictness without regression coverage.
 
 ## 8E — Performance and frontend polish
 
