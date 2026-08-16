@@ -42,10 +42,14 @@ def test_returns_use_trading_observations():
 
 
 def test_12m_return_fallback_is_zero_when_history_is_short():
+    # 126 observations satisfy V2 eligibility, but are insufficient for a
+    # 126-day point-to-point return because that needs the starting observation
+    # plus 126 prior trading observations. Only the explicit 12M display fallback
+    # is required to be zero here.
     close, _ = monotonic_data(126)
     out = returns(close)
     assert out.loc["A", "12M Return"] == 0.0
-    assert np.isfinite(out.loc["A", "6M Return"])
+    assert pd.isna(out.loc["A", "6M Return"])
 
 
 def test_12m_return_is_point_to_point_when_history_is_available():
@@ -63,8 +67,6 @@ def test_r2_of_linear_log_price_is_one():
 
 def test_sharpe_matches_annualized_log_return_definition():
     close, _ = monotonic_data()
-    # A perfectly constant log-return stream has zero volatility by definition.
-    # Add a deterministic small oscillation so the Sharpe denominator is non-zero.
     t = np.arange(len(close), dtype=float)
     close["A"] *= np.exp(0.001 * np.sin(t / 7.0))
     result = sharpe(close, 126).iloc[-1, 0]
