@@ -2,7 +2,7 @@
 
 A clean, performance-first rebuild of the Umiya NSE quantitative screener.
 
-> **Current status: Phase 0–8 complete; Phase 9 production acceptance in progress.**
+> **Current status: Phase 0–9 complete.**
 
 The old `Pareshking/Umiya` repository is **reference-only and must never be modified**. It is used for quantitative methodology, validated formulas, research requirements and product behaviour—not as an architectural template.
 
@@ -113,17 +113,15 @@ Never commit these values.
 | 6 | Production measurement, correctness and performance | ✅ Complete |
 | 7 | Production operational hardening | ✅ Complete |
 | 8 | Production Screener evolution / edge-case audit | ✅ Complete |
-| 9 | Production release & acceptance | 🔄 In progress |
+| 9 | Production release & acceptance | ✅ Complete |
 
-## Phase 8 closure
+## Phase 9 closure
 
-Phase 8 completed the evidence-backed production Screener audit without redesigning the architecture or changing quantitative methodology. It fixed frontend race/error-state issues, strengthened query contracts and edge-case handling, added R2 pointer validation, added repeated-refresh and constituent-replacement regression coverage, measured production payloads/latency, and synchronized release documentation.
+Phase 9 completed the final production acceptance checkpoint without changing architecture or quantitative methodology. The production smoke suite passed readiness, liveness, health, metadata, five screener queries, search/sort, stock detail, all three chart horizons, CSV export, 400/404 contracts, CORS and frontend reachability. The passing run recorded query latency of p50 103 ms / p95 106 ms.
 
-The latest pre-Phase-9 production run confirmed the functional API and frontend contracts. The only smoke failure was a Render cold-start readiness timeout; the service subsequently returned healthy responses and query latency fell to p50 43 ms / p95 44 ms. Phase 9 hardens the smoke assertion so that this transient wake-up condition is retried rather than reported as a false release failure.
+The smoke test was hardened to handle Render cold starts correctly: the initial readiness request acts as a wake-up probe, liveness confirms availability, and readiness is retried and required to establish dataset readiness.
 
-## Phase 9 release checkpoint
-
-Phase 9 is the final production acceptance pass before new product development. It is intentionally limited to live contract validation, cold-start-safe smoke testing, CI/security gates, evidence capture and documentation synchronization. It introduces no architecture or quantitative-methodology changes.
+Frontend build, Python/data-validation gates and CodeQL were green on the release checkpoint. Phase 9 is now closed.
 
 ## Working rules
 
