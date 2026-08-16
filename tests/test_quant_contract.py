@@ -41,14 +41,10 @@ def test_returns_use_trading_observations():
     assert np.isclose(out.loc["A", "3M Return"], expected)
 
 
-def test_12m_return_fallback_is_zero_when_history_is_short():
-    # 126 observations satisfy V2 eligibility, but are insufficient for a
-    # 126-day point-to-point return because that needs the starting observation
-    # plus 126 prior trading observations. Only the explicit 12M display fallback
-    # is required to be zero here.
+def test_12m_return_is_unavailable_when_history_is_short():
     close, _ = monotonic_data(126)
     out = returns(close)
-    assert out.loc["A", "12M Return"] == 0.0
+    assert pd.isna(out.loc["A", "12M Return"])
     assert pd.isna(out.loc["A", "6M Return"])
 
 
