@@ -56,13 +56,21 @@ def main() -> int:
             if code != 200:
                 raise SystemExit(f"query failed: HTTP {code}")
             if sample_symbol is None:
-                rows = client.post(f"{API}/api/v1/screener/query", json=base).json().get("rows", [])
+                rows = client.post(
+                    f"{API}/api/v1/screener/query",
+                    json={**base, "search": "APCOTEXIND"},
+                ).json().get("rows", [])
                 if rows:
                     sample_symbol = rows[0].get("Symbol")
+                else:
+                    rows = client.post(f"{API}/api/v1/screener/query", json=base).json().get("rows", [])
+                    if rows:
+                        sample_symbol = rows[0].get("Symbol")
             results.append({"operation": "screener_query", "run_ms": round(ms, 2), "status": code, "bytes": size})
 
         if not sample_symbol:
             raise SystemExit("could not select a production sample symbol")
+        print(f"Injected-stock verification symbol: {sample_symbol}")
 
         operations = [
             ("numeric_filter", "POST", "/api/v1/screener/query", {**base, "filters": [{"field": "Momentum Score", "operator": ">", "value": 0}]}),
