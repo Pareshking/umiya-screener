@@ -1,0 +1,1 @@
+Production R2 access is supplied through GitHub Actions secrets at runtime only.
