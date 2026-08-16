@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.quant import industry_relative, momentum_acceleration, momentum_score, technical_snapshot
+from src.quant import industry_relative, momentum_acceleration, momentum_score, returns, technical_snapshot
 
 
 def sample_data():
@@ -56,3 +56,11 @@ def test_clean_prices_preserves_partial_missing_data():
     assert bad.index[10] in cleaned.index
     assert bad.index[11] in cleaned.index
     assert cleaned.iloc[11].isna().sum() == 4
+
+
+def test_long_return_stays_unavailable_without_enough_history():
+    close, _ = sample_data()
+    short = close.iloc[:200].copy()
+    result = returns(short)
+    assert result["12M Return"].isna().all()
+    assert result["6M Return"].notna().all()
