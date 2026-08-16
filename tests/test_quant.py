@@ -46,7 +46,7 @@ def test_acceleration():
     assert len(accel) == close.shape[1]
 
 
-def test_clean_prices_preserves_partial_missing_data():
+def test_clean_prices_forward_fills_after_first_observation():
     close, _ = sample_data()
     bad = close.copy()
     bad.iloc[10, :] = np.nan
@@ -55,7 +55,10 @@ def test_clean_prices_preserves_partial_missing_data():
     cleaned = clean_prices(bad)
     assert bad.index[10] in cleaned.index
     assert bad.index[11] in cleaned.index
-    assert cleaned.iloc[11].isna().sum() == 4
+    assert cleaned.iloc[10].notna().all()
+    assert cleaned.iloc[11].notna().all()
+    assert np.allclose(cleaned.iloc[10].to_numpy(), close.iloc[9].to_numpy())
+    assert np.allclose(cleaned.iloc[11, :4].to_numpy(), close.iloc[9, :4].to_numpy())
 
 
 def test_long_return_stays_unavailable_without_enough_history():
