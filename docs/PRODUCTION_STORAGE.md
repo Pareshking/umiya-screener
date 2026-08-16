@@ -2,17 +2,13 @@
 
 ## Decision
 
-**Cloudflare R2 Standard** is the current target for production analytical dataset storage.
+**Cloudflare R2 Standard** is the production target and active durable store for published Screener analytical datasets.
 
 Why:
 
-- S3-compatible API, so the Python worker can use standard S3 tooling.
-- Designed for object storage, which matches versioned Parquet datasets.
-- No egress bandwidth charge on R2.
-- Current Standard free allowance includes 10 GB-month storage, 1 million Class A operations and 10 million Class B operations per month. See Cloudflare's current pricing documentation before production deployment.
-- Keeps the storage layer independent from FastAPI and Next.js.
-
-The expected Screener dataset is small enough that object storage is a better fit than introducing a database solely to hold the analytical files.
+- S3-compatible API, so the Python worker uses standard S3 tooling.
+- Versioned Parquet datasets fit object storage well.
+- Keeps durable analytical storage independent from FastAPI and Next.js.
 
 ## Object layout
 
@@ -36,7 +32,7 @@ umiya-screener/
 
 ## Publication protocol
 
-The worker must never overwrite the active dataset in place.
+The worker never overwrites the active dataset in place.
 
 ```text
 Build candidate locally
@@ -52,20 +48,35 @@ Atomically update latest pointer
 API reads pointer → active version
 ```
 
-If a build fails, the pointer remains unchanged and the previous dataset continues serving.
+If a build fails, the pointer remains unchanged and the previous valid dataset continues serving.
+
+## Lifecycle policy — verified in production
+
+The active production R2 bucket has the following lifecycle configuration:
+
+- `datasets/` historical immutable versions: **30-day retention**
+- `metrics/` historical immutable versions: **30-day retention**
+- `pointers/`: **protected from historical expiration**
+- incomplete multipart uploads: **7-day cleanup**
+
+The publication design keeps the active pointer target separate from historical retention, so lifecycle cleanup cannot remove the active pointer or the active published version during normal operation.
 
 ## API behaviour
 
-FastAPI reads the active version. It does not write market data and does not run the data acquisition pipeline.
+FastAPI reads the active version. It does not acquire market data or rebuild the analytical dataset on user requests.
 
-The API may cache the downloaded analytical dataset in process memory for fast queries, but that cache is disposable. R2 remains the source of durable truth.
+The API may cache the downloaded analytical dataset in process memory for fast queries, but that cache is disposable. R2 is the durable source of truth for published production data.
 
 ## Credentials
 
-R2 credentials must exist only in worker/API server environment configuration. Never commit them, expose them to Next.js, or place them in client-side environment variables.
+R2 credentials exist only in worker/API server environment configuration. They are never committed, exposed to Next.js, or placed in client-side environment variables.
 
-## Status
+## Validation record
 
-- Architecture decision: **selected**
-- Code integration: pending production deployment phase
-- Live bucket/credential validation: pending because deployment credentials are not yet configured
+- Real R2 publication: passed.
+- Controlled production refresh: passed.
+- Pointer advancement: passed.
+- Post-publication production readiness smoke: passed.
+- Lifecycle/retention configuration: verified.
+
+See `docs/PHASE5_STATUS.md` and `docs/PHASE7_STATUS.md` for the production acceptance records.
