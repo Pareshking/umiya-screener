@@ -1,39 +1,42 @@
 # Phase 9 — Production Release & Acceptance
 
-**Status:** IN PROGRESS — 2026-08-16
+**Status:** COMPLETE — 2026-08-16
 
-Phase 9 is the final production acceptance checkpoint after the Phase 8 audit. It does not introduce architecture or quantitative-methodology changes.
+Phase 9 is the final production acceptance checkpoint after the Phase 8 audit. It introduced no architecture or quantitative-methodology changes.
 
-## Scope
+## Final evidence
 
-- Verify production GitHub Actions gates remain green.
-- Validate the public Vercel frontend and Render API contract.
-- Validate liveness, readiness and health behavior including Render cold starts.
-- Record representative production query latency and payload sizes.
-- Confirm invalid-request contracts, CORS, stock detail, charts and CSV export.
-- Synchronize release documentation before moving to new product work.
+The updated production smoke workflow passed on run #112 against commit `ddaa4e59874950e83d2e7c841e9cf6f74463a594`.
 
-## Current evidence
+Verified in the passing production run:
 
-The latest pre-fix production run passed frontend build, Python tests, 10-year Yahoo history validation, Phase 2 real-universe validation, CodeQL, API queries, search/sort, stock detail, charts, export, HTTP 400/404 contracts, CORS and frontend reachability.
+- readiness: HTTP 200, 336 ms;
+- liveness: HTTP 200, 103 ms;
+- health: HTTP 200, 94 ms;
+- metadata: HTTP 200, 93 ms;
+- five screener queries: HTTP 200;
+- query latency: p50 103 ms / p95 106 ms;
+- search/sort: HTTP 200;
+- stock detail: HTTP 200;
+- 63d/126d/252d charts: HTTP 200;
+- CSV export: HTTP 200;
+- missing stock: HTTP 404;
+- invalid filter: HTTP 400;
+- invalid sort: HTTP 400;
+- CORS: correct production frontend origin;
+- frontend: HTTP 200.
 
-The only failing smoke assertion was readiness during a Render cold start. The service subsequently became healthy and all functional API checks passed, with query p50 43 ms / p95 44 ms in that run.
+Frontend build, Python tests, 10-year Yahoo history validation, Phase 2 real-universe validation and CodeQL security checks were also green on the release checkpoint.
 
-The smoke test has therefore been hardened to treat the first readiness request as a cold-start wake-up probe and require a readiness retry after liveness confirms the service is alive.
+The smoke test was hardened for Render cold starts: the initial readiness request is treated as a wake-up probe, liveness confirms service availability, and readiness is retried and required to establish dataset readiness.
 
-## Exit criteria
+## Release decision
 
-Phase 9 closes only when:
+**Phase 9 ACCEPTED.** No known functional blocker remains in the repository/API release evidence.
 
-1. the updated production smoke workflow passes;
-2. frontend, Python and security gates are green;
-3. production API contracts remain green;
-4. documentation is synchronized with the final evidence;
-5. no known functional blocker remains.
+The only observation not represented as automated evidence is an independent human visual walkthrough on a real desktop/mobile browser/device. This remains an external observation and is not falsely marked complete.
 
-An independent human visual walkthrough on a real desktop/mobile browser/device remains an external observation and is not represented as automated evidence.
-
-## Constraints
+## Constraints preserved
 
 - Screener-only scope.
 - No Streamlit.
