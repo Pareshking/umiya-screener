@@ -7,11 +7,14 @@ import pandas as pd
 
 
 def clean_prices(prices: pd.DataFrame) -> pd.DataFrame:
-    """Remove market-wide holiday rows, then forward-fill ordinary gaps."""
+    """Remove rows with excessive missing symbols and forward-fill ordinary gaps."""
     if prices.empty:
         return prices.copy()
-    threshold = max(int(prices.shape[1] * 0.70), 1)
-    cleaned = prices.loc[prices.isna().sum(axis=1) <= threshold].copy()
+    # A trading-day row is retained when at least 70% of the universe has a
+    # price. The previous implementation inverted this condition and could
+    # retain rows with 70% missing data, which could contaminate indicators.
+    min_observations = max(int(np.ceil(prices.shape[1] * 0.70)), 1)
+    cleaned = prices.loc[prices.notna().sum(axis=1) >= min_observations].copy()
     return cleaned.ffill()
 
 
