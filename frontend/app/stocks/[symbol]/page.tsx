@@ -22,16 +22,30 @@ export default function StockPage() {
 
   useEffect(() => {
     if (!symbol) return;
-    fetch(`${API}/api/v1/stocks/${encodeURIComponent(symbol)}`, {cache:"no-store"}).then(async r => { if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || "Stock unavailable"); return r.json(); }).then(setStock).catch(e => setError(e instanceof Error ? e.message : "Unable to load stock."));
+    const controller = new AbortController();
+    setError("");
+    setStock(null);
+    fetch(`${API}/api/v1/stocks/${encodeURIComponent(symbol)}`, {cache:"no-store", signal: controller.signal})
+      .then(async r => { if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || "Stock unavailable"); return r.json(); })
+      .then(data => { if (!controller.signal.aborted) setStock(data); })
+      .catch(e => { if (e?.name !== "AbortError") setError(e instanceof Error ? e.message : "Unable to load stock."); });
+    return () => controller.abort();
   }, [symbol]);
 
   useEffect(() => {
     if (!symbol) return;
-    fetch(`${API}/api/v1/stocks/${encodeURIComponent(symbol)}/chart?days=${days}`, {cache:"no-store"}).then(async r => { if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || "Chart unavailable"); return r.json(); }).then(c => setChart(c.rows || [])).catch(e => setError(e instanceof Error ? e.message : "Unable to load chart."));
+    const controller = new AbortController();
+    setChart([]);
+    fetch(`${API}/api/v1/stocks/${encodeURIComponent(symbol)}/chart?days=${days}`, {cache:"no-store", signal: controller.signal})
+      .then(async r => { if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || "Chart unavailable"); return r.json(); })
+      .then(c => { if (!controller.signal.aborted) setChart(c.rows || []); })
+      .catch(e => { if (e?.name !== "AbortError") setError(e instanceof Error ? e.message : "Unable to load chart."); });
+    return () => controller.abort();
   }, [symbol, days]);
 
-  const values = useMemo(() => chart.map(p=>p.adj_close), [chart]);
-  const min = Math.min(...values), max = Math.max(...values);
+  const values = useMemo(() => chart.map(p=>p.adj_close).filter(Number.isFinite), [chart]);
+  const min = values.length ? Math.min(...values) : 0;
+  const max = values.length ? Math.max(...values) : 0;
   const path = values.length > 1 ? values.map((v,i) => `${(i/(values.length-1))*100},${100-((v-min)/(max-min || 1))*92-4}`).join(" ") : "";
 
   if (error && !stock) return <main className="detailpage"><button className="back" onClick={()=>router.push("/")}>← Screener</button><div className="detailerror"><b>{error}</b><span>Return to the screener and try another symbol.</span></div></main>;
