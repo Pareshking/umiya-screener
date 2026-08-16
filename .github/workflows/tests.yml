@@ -20,6 +20,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: pytest -q
       - name: Test full Yahoo history — Adj Close + Volume
+        if: always()
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
@@ -82,7 +83,9 @@ jobs:
           (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
           print(json.dumps(summary, indent=2))
           PY
-      - uses: actions/upload-artifact@v4
+      - name: Upload Yahoo data test artifact
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: yahoo-full-history-test
           path: data_cache/yahoo_full_history_test/
