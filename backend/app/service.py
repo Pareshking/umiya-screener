@@ -208,6 +208,7 @@ class ScreenerStore:
 store = ScreenerStore()
 
 FILTERABLE = ["Rank", "Index", "Symbol", "CMP", "Momentum Score", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "R² 1Y", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Industry", "Within 20% of 52W High", "Data Age Days"]
+SORTABLE = ["Rank", "Symbol", "Company Name", "Industry", "Index", "CMP", "Momentum Score", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "R² 1Y", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Data Age Days"]
 _ALLOWED_OPERATORS = {">", ">=", "<", "<=", "=", "in"}
 
 
@@ -220,6 +221,11 @@ def _apply_filter(frame: pd.DataFrame, field: str, op: str, value) -> pd.DataFra
     if op == "in":
         return frame[s.isin(value if isinstance(value, list) else [value])]
     if op == "=":
+        if pd.api.types.is_numeric_dtype(s):
+            try:
+                return frame[pd.to_numeric(s, errors="coerce") == float(value)]
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Filter value for {field} must be numeric for operator =") from exc
         return frame[s == value]
     try:
         v = float(value)
@@ -239,10 +245,13 @@ def query(payload) -> dict:
         frame = frame[symbol.str.contains(search, regex=False, na=False) | company.str.contains(search, regex=False, na=False)]
     for flt in payload.filters:
         frame = _apply_filter(frame, flt.field, flt.operator, flt.value)
-    field = payload.sort.field if payload.sort.field in frame.columns else "Rank"
+    field = payload.sort.field
+    if field not in SORTABLE or field not in frame.columns:
+        raise ValueError(f"Unsupported sort field: {field}")
     frame = frame.sort_values(field, ascending=payload.sort.direction == "asc", na_position="last", kind="stable")
     total = len(frame)
     pages = max(1, (total + payload.page_size - 1) // payload.page_size)
-    start = (payload.page - 1) * payload.page_size
+    effective_page = min(payload.page, pages)
+    start = (effective_page - 1) * payload.page_size
     page = frame.iloc[start:start + payload.page_size].replace({np.nan: None})
-    return {"total": total, "page": payload.page, "page_size": payload.page_size, "pages": pages, "rows": page.to_dict(orient="records"), "available_filters": FILTERABLE, "built_at": store.built_at.isoformat() if store.built_at else None}
+    return {"total": total, "page": effective_page, "page_size": payload.page_size, "pages": pages, "rows": page.to_dict(orient="records"), "available_filters": FILTERABLE, "available_sorts": SORTABLE, "built_at": store.built_at.isoformat() if store.built_at else None}
