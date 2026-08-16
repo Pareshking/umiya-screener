@@ -13,9 +13,11 @@ MOMENTUM_WINDOWS = (21, 63, 126, 189, 252)
 DEFAULT_LOOKBACK_WEIGHTS = (0.10, 0.30, 0.30, 0.20, 0.10)
 BENCHMARK = "^NSEI"
 INDEX_UNIVERSE = "NIFTY 750"
-# A stock must have at least 126 observations to enter the screener.
-# Longer lookbacks are allowed to be unavailable; they do not disqualify the stock.
 MIN_HISTORY = 126
+# A stock may be behind the common market as-of date by at most three
+# calendar days (weekends/exchange holidays are represented by the common
+# market date, so they do not create fake observations).
+MAX_DATA_AGE_DAYS = 3
 
 INDEX_URLS = {
     "NIFTY 50": "https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv",
@@ -38,8 +40,6 @@ INDEX_LOCAL_PATHS = {
     for name in INDEX_URLS
 }
 
-# NSE commonly rejects plain HTTP clients. Keep browser-like headers and
-# prime a session against the NSE site before requesting constituent CSVs.
 HTTP_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
