@@ -18,6 +18,7 @@ class SortSpec(BaseModel):
 class ScreenerQuery(BaseModel):
     filters: list[Filter] = Field(default_factory=list)
     sort: SortSpec = Field(default_factory=SortSpec)
+    search: str | None = Field(default=None, max_length=80)
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=200)
 
@@ -47,5 +48,7 @@ class ScreenerResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    pages: int
     rows: list[dict]
     available_filters: list[str]
+    built_at: str | None = None
