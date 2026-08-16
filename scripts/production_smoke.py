@@ -16,6 +16,7 @@ FRONTEND = os.getenv("PRODUCTION_FRONTEND_URL", "https://pareshpatel.vercel.app"
 def main() -> int:
     failures = 0
     timings: list[float] = []
+    payload_sizes: dict[str, int] = {}
     with httpx.Client(timeout=30, follow_redirects=True) as client:
         def check(name: str, method: str, path: str, payload=None, expected=200):
             nonlocal failures
@@ -23,7 +24,8 @@ def main() -> int:
             try:
                 r = client.request(method, API + path, json=payload)
                 elapsed = (time.perf_counter() - start) * 1000
-                print(f"{name}: HTTP {r.status_code} ({elapsed:.0f} ms)")
+                print(f"{name}: HTTP {r.status_code} ({elapsed:.0f} ms, {len(r.content)} bytes)")
+                payload_sizes[name] = len(r.content)
                 if r.status_code != expected:
                     print(r.text[:500])
                     failures += 1
@@ -103,6 +105,7 @@ def main() -> int:
 
         check("missing-stock-404", "GET", "/api/v1/stocks/NOT_A_REAL_SYMBOL", expected=404)
         check("bad-filter-400", "POST", "/api/v1/screener/query", {"filters": [{"field": "NO_SUCH_FIELD", "operator": ">", "value": 1}]}, expected=400)
+        check("bad-sort-400", "POST", "/api/v1/screener/query", {"filters": [], "sort": {"field": "NO_SUCH_SORT", "direction": "asc"}, "page": 1, "page_size": 10}, expected=400)
 
         try:
             r = client.get(API + "/api/v1/health", headers={"Origin": FRONTEND})
@@ -125,6 +128,8 @@ def main() -> int:
 
     if timings:
         print(f"query latency: p50={statistics.median(timings):.0f} ms p95={sorted(timings)[max(0, int(len(timings)*.95)-1)]:.0f} ms")
+    if payload_sizes:
+        print("payload sizes: " + ", ".join(f"{name}={size}B" for name, size in payload_sizes.items()))
     print("PRODUCTION SMOKE: PASS" if failures == 0 else f"PRODUCTION SMOKE: FAIL ({failures} checks)")
     return 1 if failures else 0
 
