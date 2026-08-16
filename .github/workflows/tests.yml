@@ -2,7 +2,7 @@ name: validation
 
 on:
   push:
-    branches: [main]
+    branches: [main, "test/full-history-adjclose-volume-20260816"]
   pull_request:
     branches: [main]
 
@@ -19,6 +19,73 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: pytest -q
+      - name: Test full Yahoo history — Adj Close + Volume
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import pandas as pd
+          import yfinance as yf
+          from src.data import load_universe
+
+          out = Path("data_cache/yahoo_full_history_test")
+          out.mkdir(parents=True, exist_ok=True)
+          universe = load_universe()
+          symbols = universe["Symbol"].dropna().astype(str).str.upper().drop_duplicates().tolist()
+          tickers = [f"{s}.NS" for s in symbols]
+          print(f"Universe symbols: {len(symbols)}")
+          raw = yf.download(tickers, period="max", auto_adjust=False, actions=False, progress=True, group_by="column", threads=True)
+          if raw.empty:
+              raise RuntimeError("Yahoo returned an empty dataset")
+          if not isinstance(raw.columns, pd.MultiIndex):
+              raise RuntimeError(f"Expected MultiIndex output, got {type(raw.columns)}")
+          fields = set(raw.columns.get_level_values(0))
+          required = {"Adj Close", "Volume"}
+          if required - fields:
+              raise RuntimeError(f"Missing fields: {sorted(required - fields)}")
+          adj = raw["Adj Close"].copy()
+          vol = raw["Volume"].copy()
+          adj.columns = [str(c).replace(".NS", "").upper() for c in adj.columns]
+          vol.columns = [str(c).replace(".NS", "").upper() for c in vol.columns]
+          adj = adj.reindex(columns=symbols)
+          vol = vol.reindex(columns=symbols)
+          adj.index = pd.to_datetime(adj.index).tz_localize(None)
+          vol.index = pd.to_datetime(vol.index).tz_localize(None)
+          report = pd.DataFrame({
+              "AdjCloseDays": adj.notna().sum(),
+              "VolumeDays": vol.notna().sum(),
+              "FirstAdjClose": adj.apply(lambda s: s.dropna().index.min() if s.notna().any() else pd.NaT),
+              "LastAdjClose": adj.apply(lambda s: s.dropna().index.max() if s.notna().any() else pd.NaT),
+              "AdjCloseMissingPct": adj.isna().mean().mul(100),
+              "VolumeMissingPct": vol.isna().mean().mul(100),
+              "ZeroVolumeDays": vol.fillna(0).eq(0).sum(),
+          })
+          report.index.name = "Symbol"
+          report.to_csv(out / "symbol_report.csv")
+          adj.to_parquet(out / "adj_close.parquet")
+          vol.to_parquet(out / "volume.parquet")
+          summary = {
+              "universe_symbols": len(symbols),
+              "yahoo_columns": len(adj.columns),
+              "date_rows": len(adj.index),
+              "first_date": str(adj.index.min().date()),
+              "last_date": str(adj.index.max().date()),
+              "symbols_with_adj_close": int(adj.notna().any().sum()),
+              "symbols_with_volume": int(vol.notna().any().sum()),
+              "symbols_ge_126_adj_close": int((adj.notna().sum() >= 126).sum()),
+              "symbols_ge_126_volume": int((vol.notna().sum() >= 126).sum()),
+              "adj_close_missing_cells": int(adj.isna().sum().sum()),
+              "volume_missing_cells": int(vol.isna().sum().sum()),
+          }
+          (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+          print(json.dumps(summary, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yahoo-full-history-test
+          path: data_cache/yahoo_full_history_test/
 
   frontend:
     runs-on: ubuntu-latest
