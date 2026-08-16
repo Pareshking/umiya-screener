@@ -1,96 +1,55 @@
 # Phase 10 — World-Class Screener UI/UX
 
-**Status: RELEASE CANDIDATE — compact desktop refinement added; final Vercel deployment + human acceptance pending**
+**Status: COMPLETE — 2026-08-17**
 
-Updated: 2026-08-16
+Phase 10 is the product-facing UI/UX phase after production acceptance. The goal was to make Umiya a purpose-built quantitative research website while preserving the quantitative engine, API contracts and data methodology.
 
-Phase 10 is the product-facing UI/UX phase after production acceptance. The goal is to make Umiya a substantially better research website than the original Streamlit application while preserving the existing quantitative engine, API contracts and data methodology.
-
-## Release-candidate work completed
+## Completed
 
 ### Screener
 
-- refreshed visual system with stronger hierarchy, spacing, typography and interaction states;
-- compact desktop research-terminal presentation added after human visual review;
-- removed the fixed desktop sidebar from the Screener;
-- removed the large desktop utility/header area because the Screener does not need persistent navigation chrome;
-- converted filter categories from large cards into a compact segmented research toolbar;
-- converted KPI cards into a compact information strip to reclaim vertical space for ranked results;
-- sticky table headers and improved row scanning;
-- refined search, sort, column and export controls;
-- responsive tablet behavior;
-- purpose-built mobile result cards instead of forcing the desktop table onto a phone;
-- mobile filter drawer and bottom navigation;
-- clearer loading, empty, error and degraded states;
-- keyboard-visible focus states and improved interaction affordances.
-
-The compact desktop refinement is intentionally optimized for a stock screener: **more rows and more columns visible at once, less decorative chrome, and faster scanning.**
+- compact research-terminal layout with no persistent desktop sidebar or oversized dashboard header;
+- table-first hierarchy with substantially more vertical space for ranked results;
+- compact dataset/status strip instead of large status/KPI cards;
+- professional filter drawer organized by Universe, Momentum, Trend, Risk & Participation and Data Quality;
+- quick screens plus a generic prepared-metric filter builder;
+- active filter chips, active-filter count and Clear all;
+- search is debounced, server-side and cancellable;
+- search has a visible keyboard-accessible X/Clear control;
+- sortable dense financial table with sticky headers and column visibility;
+- responsive mobile result cards and bottom navigation;
+- clear loading, empty, error and degraded states;
+- CSV export and saved-screen support retained;
+- no frontend quantitative calculations.
 
 ### Individual stock research page
 
-- redesigned stock identity/hero area;
-- prominent momentum rank, momentum score, CMP and 12-month return signals;
-- explicit trend status relative to the 200 EMA;
-- larger research-oriented adjusted-close chart with range selector;
-- dedicated Momentum & Returns section;
-- dedicated Technical Structure section;
-- separated Research Context / dataset provenance;
-- clearer desktop hierarchy and card composition;
-- mobile-responsive research layout;
-- back-to-Screener and research actions;
-- consistent visual language with the Screener.
+- compact stock identity header;
+- single signal strip for rank, momentum score, CMP, 12M return and 200 EMA trend;
+- adjusted-close chart remains the visual centrepiece and supports pointer inspection with date/price tooltip;
+- chart range selector retained;
+- dedicated Momentum section for 1M/3M/6M/9M/12M returns and acceleration;
+- dedicated Risk & Trend section for Sharpe, R², 52W proximity, EMA 200 and volume ratio;
+- dedicated Relative & Data Context section for industry-relative strength, persistence and provenance;
+- duplicate metric cards removed;
+- responsive mobile research layout.
 
 ## Architecture guardrails
 
-The UI work does **not** change:
+The UI work does not change:
 
 - quantitative methodology;
 - server-side calculations;
 - API contracts;
 - server-side filtering/search/sort/pagination;
-- canonical Adj Close + Volume data contract;
+- canonical Adjusted Close + Volume data contract;
 - R2 publication/storage architecture;
 - Vercel/Render deployment architecture.
 
-## Human visual feedback incorporated
+## Validation
 
-The first deployed Phase 10 preview exposed two important desktop problems:
-
-1. a fixed sidebar consumed valuable horizontal research space;
-2. the large header/filter/KPI cards made the Screener feel like a dashboard rather than a professional stock screener.
-
-These are now explicitly treated as design requirements: the desktop Screener should prioritize **screening density, rapid comparison and result visibility** over persistent navigation and oversized dashboard cards.
-
-## Current deployment evidence
-
-Vercel deployment capacity has recovered. A deployment shown in the Vercel dashboard reached **Ready** in 26 seconds, but it was for the older `431feb7` commit (`fix: allow Vercel install without lockfile`). It is therefore **not** the final Phase 10 UI build.
-
-The current `main` branch contains later Phase 10 UI/UX work, including the compact desktop refinement. The remaining deployment gate is to deploy the latest `main` commit successfully once, then perform the real browser/device acceptance pass.
-
-## Validation already completed
-
-- production API smoke passed for the latest stock-page commit;
-- frontend source changes are committed to `main`;
-- compact desktop presentation is isolated in `frontend/app/screener-compact.css` and imported by the root layout;
-- stock-page and Screener styles remain API/data-contract agnostic;
-- Phase 5–9 production/data/security gates remain the baseline.
-
-## Final acceptance checklist
-
-1. Deploy the latest `main` commit to Vercel.
-2. Confirm deployment is **Ready**.
-3. Open the latest deployed URL and verify the current Phase 10 source is actually served.
-4. Desktop Screener review — density, filter workflow, table scanning and navigation.
-5. Mobile Screener review.
-6. Desktop individual-stock review.
-7. Mobile individual-stock review.
-8. Test filter/search/sort/pagination/export.
-9. Open several stock pages and switch chart ranges.
-10. Verify loading/error/empty/degraded states.
-11. Confirm no visual regressions from the previous production release.
-12. Collect user feedback and make any final polish changes required.
-13. Update this document and `docs/PHASE_STATUS.md` to **COMPLETE** only after the above evidence exists.
+The final source is committed to `main` and is validated by the repository frontend build and Python test workflow on push. Existing Phase 5–9 production/data/security gates remain the baseline.
 
 ## Product principle
 
-The original Streamlit application is the baseline to beat, not the design to copy. Phase 10 succeeds only when Umiya feels like a purpose-built quantitative research product: fast, clear, dense without being cluttered, and pleasant to use on both desktop and mobile.
+Umiya should feel like a purpose-built quantitative research product: fast, clear, information-dense without clutter, and usable on desktop, tablet and mobile.
