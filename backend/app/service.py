@@ -95,8 +95,6 @@ def write_metric_cache(frame: pd.DataFrame, built_at: datetime) -> None:
     pointer_tmp.write_text(json.dumps({"dataset": target.name}, indent=2), encoding="utf-8")
     pointer_tmp.replace(METRICS_ROOT / "LATEST.json")
 
-    # Compatibility path for existing local deployments; it is not the source
-    # of truth and can be deleted/rebuilt at any time.
     tmp = METRICS_CACHE_PATH.with_suffix(".tmp.parquet")
     METRICS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(tmp, index=False)
@@ -159,10 +157,16 @@ FILTERABLE = [
     "Volume Ratio", "Industry", "Within 20% of 52W High", "Data Age Days",
 ]
 
+_ALLOWED_OPERATORS = {">", ">=", "<", "<=", "=", "in"}
+
 
 def _apply_filter(frame: pd.DataFrame, field: str, op: str, value) -> pd.DataFrame:
+    if field not in FILTERABLE:
+        raise ValueError(f"Unsupported filter field: {field}")
     if field not in frame.columns:
-        return frame
+        raise ValueError(f"Filter field is unavailable in the dataset: {field}")
+    if op not in _ALLOWED_OPERATORS:
+        raise ValueError(f"Unsupported filter operator: {op}")
     s = frame[field]
     if op == "in":
         values = value if isinstance(value, list) else [value]
@@ -170,7 +174,10 @@ def _apply_filter(frame: pd.DataFrame, field: str, op: str, value) -> pd.DataFra
     if op == "=":
         return frame[s == value]
     numeric = pd.to_numeric(s, errors="coerce")
-    v = float(value)
+    try:
+        v = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Filter value for {field} must be numeric for operator {op}") from exc
     masks = {">": numeric > v, ">=": numeric >= v, "<": numeric < v, "<=": numeric <= v}
     return frame[masks[op]]
 
