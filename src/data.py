@@ -143,7 +143,7 @@ def fetch_prices(symbols: Sequence[str], start: str | None = None, end: str | No
 
 
 def fetch_ohlcv(symbols: Sequence[str], period: str = "10y") -> dict[str, pd.DataFrame]:
-    """Compatibility wrapper while callers migrate to the V2 two-field data contract."""
+    """Temporary compatibility name; returns only the V2 Adj Close + Volume fields."""
     return fetch_prices(symbols)
 
 
@@ -173,17 +173,10 @@ def eligible_symbols(adj_close: pd.DataFrame, as_of: pd.Timestamp | None = None)
 
 
 def align_trailing_to_as_of(frame: pd.DataFrame, symbols: Sequence[str], as_of: pd.Timestamp) -> pd.DataFrame:
-    """Align a fresh stock's trailing gap to one common market as-of date.
+    """Reindex to the common universe without imputing missing prices or volume.
 
-    Interior historical gaps remain NaN. This is not general missing-data
-    imputation; it only handles a stock that passed the <=3-day freshness test.
+    The function name is retained temporarily for compatibility with the
+    unfinished Phase 3 service. V2 does not forward-fill trailing observations.
+    Freshness is validated separately by ``eligible_symbols``.
     """
-    out = frame.reindex(columns=list(symbols)).copy()
-    for symbol in out.columns:
-        valid = out[symbol].dropna()
-        if valid.empty:
-            continue
-        last_date = pd.Timestamp(valid.index[-1]).normalize()
-        if last_date < as_of:
-            out.loc[out.index > last_date, symbol] = valid.iloc[-1]
-    return out
+    return frame.reindex(columns=list(symbols)).copy()
