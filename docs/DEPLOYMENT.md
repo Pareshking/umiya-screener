@@ -1,117 +1,90 @@
 # Umiya Screener V2 — Deployment
 
-## Free-first production target
-
-The production goal is to run the public Screener with free-tier services wherever practical:
+## Current production topology
 
 ```text
 Vercel (Next.js frontend)
         ↓ HTTPS
-Render or equivalent free backend
+Render (FastAPI API)
         ↓ read-only
-Cloudflare R2 (durable dataset)
+Cloudflare R2 (durable immutable datasets)
         ↑
-GitHub Actions scheduled data refresh
+GitHub Actions refresh + validation
         ↑
-Yahoo Finance + NSE constituent sources
+Yahoo Finance + official NSE constituents
 ```
 
-The frontend must never download Yahoo/NSE data directly.
+### Production URLs
+
+- Frontend: `https://pareshpatel.vercel.app/`
+- API: `https://umiya-screener-api.onrender.com/`
+- API docs: `https://umiya-screener-api.onrender.com/docs`
+
+The frontend never downloads Yahoo/NSE data directly.
 
 ## Responsibilities
 
 ### Vercel
 
-Hosts the Next.js frontend. It should remain stateless and contain no market-data credentials.
+Hosts the stateless Next.js frontend. No market-data credentials.
 
-### API service
+### Render
 
-FastAPI serves the latest validated analytical dataset. It must not rebuild the NSE 750 market dataset because a user opened the site or changed a filter.
+Hosts FastAPI and serves the latest validated analytical dataset. It must not rebuild the NSE 750 market dataset because a user opens the site or changes a filter.
 
 ### GitHub Actions
 
-Runs the data refresh on trading weekdays after the market closes and can also be started manually. It builds the canonical 10-year dataset, runs validation, and publishes only a successfully validated immutable version.
+Runs validation and the scheduled refresh. It builds the canonical datasets and publishes only validated immutable versions.
 
 ### Cloudflare R2
 
-Stores immutable dataset versions and a small latest-version pointer. The API reads the latest valid version. R2 is object storage, not a calculation engine.
+Stores immutable dataset versions and latest-pointer objects. It is the durable production source for published analytical data.
 
 ## Required secrets
 
-The current production workflow uses these GitHub Actions secrets:
+GitHub Actions repository secrets:
 
 - `S3_ENDPOINT_URL`
 - `S3_ACCESS_KEY_ID`
 - `S3_SECRET_ACCESS_KEY`
 - `S3_BUCKET`
 
-These are S3-compatible names because Cloudflare R2 is accessed through its S3 API. The API service uses the same `S3_*` environment variables, plus optional `S3_REGION=auto`.
+The API may use the same S3-compatible environment variables for runtime hydration, with `S3_REGION=auto` where required.
 
-No credentials belong in the repository or frontend.
+No credential belongs in source control or the frontend.
 
 ## Publication safety
 
-The refresh workflow follows:
-
 ```text
-Download
-  ↓
-Build canonical price dataset
-  ↓
-Build screener metrics
-  ↓
+Build
+ ↓
 Validate
-  ↓
-Upload immutable version
-  ↓
-Publish latest pointer
+ ↓
+Upload immutable dataset
+ ↓
+Advance latest pointer
 ```
 
-The immutable dataset is uploaded before its latest pointer is advanced. If validation or an earlier publication step fails, the existing latest pointer remains untouched.
+Pointer advancement happens only after successful publication. Failed builds preserve the previous good dataset.
 
-The API therefore continues serving the last known-good dataset.
+## Workflows
 
-## Data schedule
+- `.github/workflows/data-refresh.yml` — scheduled/manual production dataset refresh.
+- `.github/workflows/production-smoke.yml` — deployed API/frontend smoke audit.
+- `.github/workflows/tests.yml` — repository validation/build tests.
 
-The current workflow runs Monday-Friday at 19:00 IST (13:30 UTC). It can also be manually dispatched for recovery/testing.
+## Phase 5 result
 
-The schedule is intentionally after the Indian market session. A failed run should not cause a destructive update.
+Production deployment, R2 publication/runtime hydration, CORS, health, query, export, stock detail, charts, error handling and production smoke have been verified.
 
-## Free-tier principle
+## Phase 6 work
 
-Do not introduce a paid database, always-on worker, queue, or dedicated server merely to make the first production release work.
+The following are intentionally deferred to Phase 6/7:
 
-The analytical dataset is small enough that object storage plus a read-oriented API is sufficient for the initial public Screener.
+- detailed p50/p95 benchmark
+- real-device mobile audit
+- extended stale-data/failure recovery tests
+- R2 lifecycle/retention audit
+- deeper observability
 
-If traffic or dataset/query requirements outgrow the free architecture, measure the bottleneck first and upgrade only the constrained component.
-
-## Production checklist
-
-### Verified
-
-- [x] Vercel production deployment exists and latest deployment completed successfully
-- [x] FastAPI production service is configured through `render.yaml`
-- [x] Durable R2 publication path is implemented
-- [x] GitHub Actions R2 credentials are configured (confirmed by successful publication run)
-- [x] Manual scheduled refresh run succeeds
-- [x] Canonical dataset build succeeds
-- [x] Screener metric build succeeds
-- [x] Generated datasets pass the refresh validation step
-- [x] Immutable datasets are published to R2
-- [x] Latest dataset pointers are advanced after successful validation/publication
-- [x] Live screener query has been verified from the deployed application
-
-### Still to verify
-
-- [ ] `NEXT_PUBLIC_API_URL` points to the intended production API and is documented
-- [ ] API can read the current R2 pointers from a fresh instance
-- [ ] API continues serving the previous version after a deliberately failed refresh
-- [ ] CORS is restricted to the production frontend origin
-- [ ] Health endpoint publicly reachable and reports the expected dataset state
-- [ ] Stock-detail endpoint and deep links work in production
-- [ ] Chart endpoint works from a fresh API instance
-- [ ] CSV export works in production
-- [ ] Mobile smoke test on a real device
-- [ ] Desktop smoke test
-- [ ] Real p50/p95 response-time benchmark recorded
-- [ ] Stale-data and unavailable-data UI states verified
+These are no longer Phase 5 deployment blockers.
