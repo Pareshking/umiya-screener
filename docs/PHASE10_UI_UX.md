@@ -1,6 +1,6 @@
 # Phase 10 — World-Class Screener UI/UX
 
-**Status: RELEASE CANDIDATE — awaiting Vercel deployment**
+**Status: RELEASE CANDIDATE — latest source ready; final Vercel deployment + human acceptance pending**
 
 Updated: 2026-08-16
 
@@ -47,6 +47,14 @@ The UI work does **not** change:
 - R2 publication/storage architecture;
 - Vercel/Render deployment architecture.
 
+## Current deployment evidence
+
+Vercel deployment capacity has recovered. A deployment shown in the Vercel dashboard reached **Ready** in 26 seconds, but it was for the older `431feb7` commit (`fix: allow Vercel install without lockfile`). It is therefore **not** the final Phase 10 UI build.
+
+The current `main` branch contains later Phase 10 UI/UX work. The remaining deployment gate is to deploy the latest `main` commit successfully once, then perform the real browser/device acceptance pass.
+
+The earlier Vercel `build-rate-limit` condition should no longer be treated as an active blocker, but the successful older deployment must not be confused with the current release candidate.
+
 ## Validation already completed
 
 - production API smoke passed for the latest stock-page commit;
@@ -54,24 +62,21 @@ The UI work does **not** change:
 - stock-page and Screener styles are present in the production frontend source;
 - Phase 5–9 production/data/security gates remain the baseline.
 
-## Remaining release gate
-
-The current GitHub/Vercel status reports `build-rate-limit` for the Vercel deployment. This is a Vercel account/project deployment-capacity limitation, not a reported Next.js application build failure.
-
-Do not repeatedly trigger rebuilds while rate-limited. Once the rate limit clears, deploy the latest `main` commit once and perform the final real-browser acceptance pass.
-
 ## Final acceptance checklist
 
-1. Vercel deploy succeeds for latest `main`.
-2. Desktop Screener review.
-3. Mobile Screener review.
-4. Desktop individual-stock review.
-5. Mobile individual-stock review.
-6. Test filter/search/sort/pagination/export.
-7. Open several stock pages and switch chart ranges.
-8. Verify loading/error/empty states.
-9. Confirm no visual regressions from the previous production release.
-10. Update this document and `docs/PHASE_STATUS.md` to **COMPLETE** only after the above evidence exists.
+1. Deploy the latest `main` commit to Vercel.
+2. Confirm deployment is **Ready**.
+3. Open the latest deployed URL and verify the current Phase 10 source is actually served.
+4. Desktop Screener review.
+5. Mobile Screener review.
+6. Desktop individual-stock review.
+7. Mobile individual-stock review.
+8. Test filter/search/sort/pagination/export.
+9. Open several stock pages and switch chart ranges.
+10. Verify loading/error/empty/degraded states.
+11. Confirm no visual regressions from the previous production release.
+12. Collect user feedback and make any final polish changes required.
+13. Update this document and `docs/PHASE_STATUS.md` to **COMPLETE** only after the above evidence exists.
 
 ## Product principle
 
