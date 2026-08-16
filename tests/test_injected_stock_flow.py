@@ -12,7 +12,6 @@ def _price_frames(symbols: list[str], periods: int = 300):
     close = pd.DataFrame(index=index, columns=symbols, dtype=float)
     volume = pd.DataFrame(index=index, columns=symbols, dtype=float)
     for i, symbol in enumerate(symbols):
-        # Deterministic but non-identical paths; enough history for every Phase 2 window.
         trend = 100 + i * 10 + np.arange(periods) * (0.12 + i * 0.01)
         wave = np.sin(np.arange(periods) / (13 + i)) * (1.5 + i * 0.2)
         close[symbol] = trend + wave
@@ -69,6 +68,9 @@ def test_phase2_metric_and_query_flow_accepts_injected_apcotexind(monkeypatch):
             "History Days": [300, 300, 300],
             "Last Price Date": [as_of] * 3,
             "Data Age Days": [0, 0, 0],
+            "Volume Days": [300, 300, 300],
+            "Last Volume Date": [as_of] * 3,
+            "Volume Age Days": [0, 0, 0],
         }
     )
     universe = pd.DataFrame(
