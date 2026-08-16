@@ -87,9 +87,9 @@ These are targets, not guarantees. Measure real deployed p50/p95 performance.
  ┌──────────────────────────────────────────────────────┐
  │                DATA / COMPUTE LAYER                  │
  │                                                      │
- │  NSE constituent files + Yahoo/market data           │
+ │  NSE constituent files + Yahoo Finance               │
  │                     ↓                                │
- │            Data acquisition layer                    │
+ │       10y Adjusted Close + Volume acquisition        │
  │                     ↓                                │
  │            Quantitative engine                       │
  │                     ↓                                │
@@ -122,7 +122,8 @@ Technology direction:
 - Backend: FastAPI + Python
 - Quantitative engine: NumPy/Pandas initially; optimize only when measurement justifies it
 - Analytical storage: Parquet/Arrow initially; implementation must remain replaceable
-- Data source: official NSE constituent files + Yahoo Finance OHLCV
+- Market data: Yahoo Finance **Adjusted Close + Volume only**
+- Constituent data: official NSE index files
 - Frontend target: Vercel
 - Backend target: Render or equivalent
 - Data pipeline: independent scheduled worker/job
@@ -206,6 +207,8 @@ The screener should support the methodology established in Umiya while keeping e
 
 **Do not invent formulas merely because a metric name exists. Document and test the exact definition.**
 
+Important V2 data rule: the canonical source provides only Adjusted Close and Volume. Metrics such as ATR that require High/Low are **not considered part of the Phase 1 data contract** and must be explicitly redesigned or justified during Phase 2 before being implemented.
+
 ---
 
 # 5. Calculation integrity rules
@@ -229,27 +232,39 @@ Where old Umiya methodology differs from a textbook formula, preserve the Umiya 
 
 # 6. Analytical dataset / data pipeline
 
-The expensive calculation is an explicit pipeline:
+### Phase 1 data foundation
+
+The canonical data build is:
+
+```bash
+python scripts/build_data.py
+```
+
+It:
+
+1. Loads/validates the five NSE constituent sets.
+2. Requires exactly 750 unique symbols.
+3. Acquires the last 10 years of Yahoo Finance Adjusted Close + Volume.
+4. Determines one common market `as_of` date.
+5. Applies the 126-valid-observation minimum.
+6. Applies the maximum 3-calendar-day freshness rule.
+7. Validates volume history for eligible stocks.
+8. Writes Parquet data plus provenance metadata.
+9. Publishes atomically through a `LATEST.json` pointer.
+
+The Phase 1 build is deliberately independent of FastAPI and the frontend. It does **not** perform Phase 2 screener calculations.
+
+### Phase 2 analytical pipeline
+
+The expensive metric calculation will later be:
 
 ```bash
 python scripts/build_metrics.py
 ```
 
-It should:
+It consumes the validated Phase 1 dataset, calculates the documented screener metrics, validates them, and publishes the analytical dataset for the API.
 
-1. Load/validate the five NSE constituent sets.
-2. Acquire required OHLCV history.
-3. Validate data quality.
-4. Calculate required metrics.
-5. Validate metric completeness/ranges.
-6. Produce the analytical dataset.
-7. Publish atomically to durable storage.
-8. Record build timestamp/version/configuration.
-9. Make the newly validated dataset available to the API.
-
-The API consumes the latest valid published dataset.
-
-**Production must not rely on an ephemeral local filesystem shared between unrelated services.** Storage must support durable persistence, atomic publication, worker/API access, rollback/recovery, and dataset version/provenance.
+**Production must not rely on an ephemeral local filesystem shared between unrelated services.** Production storage must support durable persistence, atomic publication, worker/API access, rollback/recovery, and dataset version/provenance.
 
 ---
 
@@ -302,7 +317,7 @@ Never mask an API failure with invented market data.
 
 ### A — Unit tests
 
-Synthetic deterministic tests for individual quantitative formulas.
+Synthetic deterministic tests for individual quantitative formulas and data-policy rules.
 
 ### B — Engine tests
 
@@ -310,7 +325,7 @@ Complete metric calculations and multi-symbol alignment.
 
 ### C — Dataset tests
 
-Universe count, duplicates, missing symbols/history, metric completeness, impossible/extreme values, provenance.
+Universe count, duplicates, missing symbols/history, common as-of date, 3-day freshness, metric completeness, impossible/extreme values, provenance.
 
 ### D — API tests
 
@@ -320,9 +335,9 @@ Filtering, sorting, pagination, metadata, unavailable dataset, malformed request
 
 Every push/PR validates the production Next.js build.
 
-### F — Live smoke test
+### F — Live data smoke test
 
-After deployment test health, metadata, initial query, filter, sort, pagination, stock detail and API failure behaviour.
+The Phase 1 CI test downloads the real NSE 750 universe and exact 10-year Yahoo window and records symbol-level history/missing-data diagnostics.
 
 ### G — Performance
 
@@ -330,35 +345,40 @@ Measure real deployed initial page load, unfiltered query, numeric filter, multi
 
 ---
 
-# 10. Definition of Done — Screener
+# 10. Definition of Done — Phase 0 + Phase 1
 
-Do not call Screener V2 complete until these are true:
+Phase 0 is complete when:
 
-- [ ] Canonical NSE 750 verified
-- [ ] Required metrics implemented
-- [ ] Metric definitions documented
-- [ ] Calculation reference tests pass
-- [ ] No look-ahead/data-alignment issues found
-- [ ] Analytical pipeline works independently of API/UI
-- [ ] Dataset publication is atomic
-- [ ] Durable production storage selected and tested
-- [ ] API is read-only with respect to market-data calculation
-- [ ] No user interaction triggers market-wide rebuild
-- [ ] No fake/demo financial data in production UI
-- [ ] Desktop UI complete
-- [ ] Mobile UI complete
-- [ ] Loading/error/empty/unavailable states complete
-- [ ] API-driven frontend complete
-- [ ] Filtering/sorting/pagination complete
-- [ ] Stock detail complete
-- [ ] Python CI green
-- [ ] Next.js production build green
-- [ ] Live NSE/Yahoo smoke test passes
-- [ ] Deployed performance benchmark completed
-- [ ] Performance materially better than old Streamlit interaction model
-- [ ] Existing Umiya repo remains untouched
+- [x] Clean V2 repository established
+- [x] No Streamlit architecture dependency
+- [x] README/architecture/agent guardrails documented
+- [x] Data/quant/API/frontend responsibility boundaries defined
+- [x] CI runs Python tests and Next.js production build
+- [x] Old Umiya repository remains untouched
 
-Only after this checklist is substantially complete should another Umiya module begin.
+Phase 1 is complete when:
+
+- [x] Canonical NSE 750 source definition established
+- [x] NSE browser-like session/user-agent acquisition implemented
+- [x] NSE HTML/block response detection implemented
+- [x] Cached constituent fallback implemented with warnings
+- [x] Canonical Yahoo data contract = Adjusted Close + Volume
+- [x] Historical window = exact last 10 years from build date
+- [x] Common market as-of date defined
+- [x] Minimum 126 valid observations defined
+- [x] Maximum 3-calendar-day freshness defined
+- [x] Weekend/holiday handling defined
+- [x] Partial-stock missing data handling defined
+- [x] 12M RoC fallback decision recorded for Phase 2
+- [x] Phase 1 standalone data-build script added
+- [x] Atomic local dataset publication added
+- [x] Provenance metadata added
+- [x] Synthetic data-policy tests added
+- [x] Real NSE 750 / Yahoo 10-year test completed successfully
+- [ ] CI green after the latest data-foundation changes
+- [ ] Production durable shared storage selected and tested
+
+Phase 2 begins only after the remaining Phase 1 validation items above are resolved.
 
 ---
 
@@ -366,15 +386,15 @@ Only after this checklist is substantially complete should another Umiya module 
 
 ## Phase 0 — Architecture guardrails
 
-Clean repo, no Streamlit, CI, engine/data/API/UI separation, architecture documentation.
+Clean repo, no Streamlit, CI, engine/data/API/UI separation, architecture documentation. **Status: complete.**
 
 ## Phase 1 — Data foundation
 
-NSE 750 loader, source validation, OHLCV acquisition, data-quality layer, analytical dataset, durable publication.
+NSE 750 loader, source validation, 10-year Adj Close + Volume acquisition, data-quality layer, standalone data build, atomic local publication and provenance. **Status: final validation in progress.**
 
 ## Phase 2 — Quant engine
 
-Implement/refactor metrics, document methodology, synthetic/reference tests, cross-sectional ranking, parity validation against old Umiya where appropriate.
+Implement/refactor metrics against the canonical Adj Close + Volume contract, document methodology, synthetic/reference tests, cross-sectional ranking, parity validation against old Umiya where appropriate.
 
 ## Phase 3 — Query API
 
@@ -418,6 +438,7 @@ Do not:
 - sacrifice mobile UX for desktop convenience
 - sacrifice calculation correctness for UI speed
 - sacrifice architecture for a quick demo
+- silently add OHLCV fields to the canonical data contract
 
 ---
 
@@ -465,6 +486,7 @@ Before a significant architectural change, ask:
 6. Is it testable and reproducible?
 7. Does it move toward Definition of Done?
 8. Are we solving a measured problem rather than adding unnecessary complexity?
+9. Does it respect the canonical 10-year Adjusted Close + Volume data contract?
 
 If any answer is no, stop and redesign before coding.
 

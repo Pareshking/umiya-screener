@@ -7,32 +7,17 @@ import pandas as pd
 
 from .config import MIN_HISTORY
 
+MOMENTUM_WINDOWS = (21, 63, 126, 189, 252)
+MOMENTUM_WEIGHTS = (0.10, 0.30, 0.30, 0.20, 0.10)
+
 
 def clean_prices(prices: pd.DataFrame) -> pd.DataFrame:
-    """Preserve the trading-date index and tolerate per-stock missing values.
-
-    Missing exchange-wide dates are normally absent from the source entirely
-    (weekends/holidays), so they must not be manufactured or treated as a
-    failed data build. Likewise, a partial source gap for one stock must not
-    delete the trading date for every other stock.
-
-    We intentionally do not forward-fill prices here. Forward-filling can turn
-    a genuine stale-price/suspension gap into a false zero return and can
-    contaminate momentum, volatility and R². Individual metrics decide how
-    many valid observations they require.
-    """
+    """Normalize dates without imputing any observations."""
     if prices.empty:
         return prices.copy()
-    cleaned = prices.copy()
-    cleaned.index = pd.to_datetime(cleaned.index)
-    return cleaned.sort_index()
-
-
-def eligible_symbols(prices: pd.DataFrame, min_history: int = MIN_HISTORY) -> pd.Index:
-    """Return symbols with at least ``min_history`` valid price observations."""
-    if prices.empty:
-        return pd.Index([], dtype=object)
-    return prices.notna().sum(axis=0).loc[lambda s: s >= min_history].index
+    out = prices.copy()
+    out.index = pd.to_datetime(out.index).tz_localize(None)
+    return out.sort_index()
 
 
 def _last_valid(series: pd.Series) -> float:
@@ -40,113 +25,143 @@ def _last_valid(series: pd.Series) -> float:
     return float(valid.iloc[-1]) if not valid.empty else np.nan
 
 
+def eligible_symbols(prices: pd.DataFrame, min_history: int = MIN_HISTORY) -> pd.Index:
+    if prices.empty:
+        return pd.Index([], dtype=object)
+    return prices.notna().sum(axis=0).loc[lambda s: s >= min_history].index
+
+
 def _return_by_observations(close: pd.DataFrame, window: int) -> pd.Series:
-    """Return using the last valid observation and ``window`` valid observations back."""
-    values = {}
+    values: dict[str, float] = {}
     for symbol in close.columns:
         series = close[symbol].dropna()
-        if len(series) <= window:
-            values[symbol] = np.nan
-        else:
-            values[symbol] = (series.iloc[-1] / series.iloc[-window - 1] - 1) * 100
+        values[symbol] = np.nan if len(series) <= window else (series.iloc[-1] / series.iloc[-window - 1] - 1) * 100
     return pd.Series(values, index=close.columns, dtype=float)
 
 
-def zscore(s: pd.Series, clip: float = 3.0) -> pd.Series:
-    valid = s.dropna()
-    if len(valid) < 3 or valid.std() == 0:
-        return pd.Series(0.0, index=s.index)
-    mean, std = valid.mean(), valid.std()
-    return ((s.clip(mean - clip * std, mean + clip * std) - mean) / (std + 1e-12)).reindex(s.index)
+def returns(close: pd.DataFrame, windows: Sequence[int] = MOMENTUM_WINDOWS) -> pd.DataFrame:
+    close = clean_prices(close)
+    out = pd.DataFrame(index=close.columns)
+    labels = {21: "1M Return", 63: "3M Return", 126: "6M Return", 189: "9M Return", 252: "12M Return"}
+    for window in windows:
+        values = _return_by_observations(close, window)
+        # V2 policy: 12M ROC is zero only when unavailable, as explicitly
+        # documented; other missing lookbacks remain NaN.
+        if window == 252:
+            values = values.fillna(0.0)
+        out[labels[window]] = values
+    return out
 
 
-def rolling_r2(prices: pd.DataFrame, window: int) -> pd.DataFrame:
-    logp = np.log(prices.clip(lower=0.01))
-    t = pd.Series(np.arange(len(logp), dtype=float), index=logp.index)
-    return logp.rolling(window, min_periods=max(int(window * 0.8), 10)).corr(t) ** 2
-
-
-def sharpe_r2(prices: pd.DataFrame, window: int) -> pd.DataFrame:
-    logret = np.log(prices / prices.shift(1).replace(0, np.nan))
-    change = np.log(prices / prices.shift(window).replace(0, np.nan))
-    vol = logret.rolling(window, min_periods=max(int(window * 0.8), 10)).std() * np.sqrt(window)
-    return (change / vol.replace(0, np.nan)) * rolling_r2(prices, window)
-
-
-def momentum_score(prices: pd.DataFrame, windows: Sequence[int] = (21, 63, 126, 189, 252), weights: Sequence[float] = (0.10, 0.30, 0.30, 0.20, 0.10)) -> pd.DataFrame:
-    """Cross-sectional weighted Z(Sharpe × R²) momentum score.
-
-    Stocks with at least 126 observations remain eligible. A longer lookback
-    may be unavailable; its contribution is zero rather than disqualifying
-    the stock from the screener.
-    """
+def rolling_r2(prices: pd.DataFrame, window: int = 252) -> pd.DataFrame:
+    """R² of log-price versus a linear time trend."""
     prices = clean_prices(prices)
-    total = float(sum(weights)) or 1.0
-    result = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+    logp = np.log(prices.where(prices > 0))
+    result = pd.DataFrame(index=prices.index, columns=prices.columns, dtype=float)
+    for symbol in prices.columns:
+        series = logp[symbol]
+        # Use contiguous valid observations; do not forward-fill gaps.
+        def calc(values: np.ndarray) -> float:
+            if np.isnan(values).sum() > 0:
+                return np.nan
+            t = np.arange(len(values), dtype=float)
+            corr = np.corrcoef(t, values)[0, 1]
+            return float(corr * corr) if np.isfinite(corr) else np.nan
+        result[symbol] = series.rolling(window, min_periods=window).apply(calc, raw=True)
+    return result
+
+
+def sharpe(close: pd.DataFrame, window: int) -> pd.DataFrame:
+    """Cumulative log return divided by same-window raw return SD, scaled by sqrt(window)."""
+    close = clean_prices(close)
+    logret = np.log(close / close.shift(1).replace(0, np.nan))
+    cumulative = np.log(close / close.shift(window).replace(0, np.nan))
+    raw_sd = logret.rolling(window, min_periods=window).std()
+    return cumulative / raw_sd.replace(0, np.nan) / np.sqrt(window)
+
+
+def _cross_sectional_z(frame: pd.DataFrame) -> pd.DataFrame:
+    mean = frame.mean(axis=1)
+    std = frame.std(axis=1).replace(0, np.nan)
+    return frame.sub(mean, axis=0).div(std, axis=0).clip(-3, 3)
+
+
+def momentum_score(
+    prices: pd.DataFrame,
+    windows: Sequence[int] = MOMENTUM_WINDOWS,
+    weights: Sequence[float] = MOMENTUM_WEIGHTS,
+) -> pd.DataFrame:
+    """Weighted cross-sectional Z-score of Sharpe × R² across 1M–12M lookbacks."""
+    prices = clean_prices(prices)
+    if len(windows) != len(weights):
+        raise ValueError("windows and weights must have equal length")
     valid_counts = prices.notna().sum()
     eligible = valid_counts >= MIN_HISTORY
+    result = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+    total = float(sum(weights)) or 1.0
     for window, weight in zip(windows, weights):
-        raw = sharpe_r2(prices, window)
+        risk = sharpe(prices, window)
+        quality = rolling_r2(prices, window)
+        raw = risk * quality
         raw.loc[:, valid_counts < window] = np.nan
-        mean = raw.mean(axis=1)
-        std = raw.std(axis=1).replace(0, np.nan)
-        z = raw.sub(mean, axis=0).div(std, axis=0).clip(-3, 3)
-        result = result.add(z.fillna(0) * (weight / total))
+        result = result.add(_cross_sectional_z(raw).fillna(0) * (weight / total), fill_value=0)
     result.loc[:, ~eligible] = np.nan
     return result
 
 
-def technical_snapshot(close: pd.DataFrame, high: pd.DataFrame, low: pd.DataFrame, volume: pd.DataFrame) -> pd.DataFrame:
-    """Build the core stock-level technical columns used by the screener."""
-    close, high, low, volume = map(clean_prices, (close, high, low, volume))
+def technical_snapshot(close: pd.DataFrame, volume: pd.DataFrame) -> pd.DataFrame:
+    """Build only technical metrics derivable from canonical Adj Close + Volume."""
+    close, volume = map(clean_prices, (close, volume))
     latest = close.apply(_last_valid)
     out = pd.DataFrame(index=close.columns)
     history_counts = close.notna().sum()
     out["History Days"] = history_counts
     out["Eligible"] = history_counts >= MIN_HISTORY
     out["CMP"] = latest
+
     for span in (50, 100, 200):
-        ema = close.ewm(span=span, min_periods=max(20, span // 2)).mean().apply(_last_valid)
+        ema = close.ewm(span=span, min_periods=span).mean().apply(_last_valid)
         out[f"EMA {span}"] = ema
         out[f"Above EMA {span}"] = latest > ema
         out[f"% EMA {span}"] = (latest / ema - 1) * 100
 
-    high_52w = high.tail(min(252, len(high))).max()
+    high_52w = close.tail(min(252, len(close))).max()
     out["52W High"] = high_52w
     out["% From 52W High"] = (latest / high_52w - 1) * 100
     out["Within 20% of 52W High"] = out["% From 52W High"] >= -20
 
-    for window, label in ((21, "1M"), (63, "3M"), (126, "6M"), (189, "9M"), (252, "12M")):
-        values = _return_by_observations(close, window)
-        if label == "12M":
-            values = values.fillna(0.0)
-        out[f"{label} Return"] = values
+    out = out.join(returns(close))
 
-    tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()]).groupby(level=0).max()
-    atr = tr.rolling(14, min_periods=5).mean().apply(_last_valid)
-    out["ATR"] = atr
-    out["ATR %"] = atr / latest * 100
-    out["ATR Stop 2x"] = (latest - 2 * atr).clip(lower=0)
-    out["Chandelier Exit"] = (high.tail(22).max() - 3 * atr).clip(lower=0)
-
-    logret = np.log(close / close.shift(1))
-    recent_logret = logret.tail(126)
-    out["Persistence 6M %"] = recent_logret.gt(0).sum() / recent_logret.notna().sum() * 100
-    vol_avg = volume.rolling(20, min_periods=10).mean().apply(_last_valid)
-    latest_volume = volume.apply(_last_valid)
-    out["Volume Ratio"] = latest_volume / vol_avg.replace(0, np.nan)
+    logret = np.log(close / close.shift(1).replace(0, np.nan))
+    recent = logret.tail(126)
+    out["Persistence 6M %"] = recent.gt(0).sum() / recent.notna().sum().replace(0, np.nan) * 100
+    vol_avg = volume.rolling(20, min_periods=20).mean().apply(_last_valid)
+    out["Volume"] = volume.apply(_last_valid)
+    out["Volume Ratio"] = out["Volume"] / vol_avg.replace(0, np.nan)
     return out
 
 
 def industry_relative(scores: pd.Series, universe: pd.DataFrame) -> pd.Series:
     frame = universe.set_index("Symbol").reindex(scores.index)
     industries = frame["Industry"].fillna("Other")
-    peer_mean = scores.groupby(industries).transform("mean")
-    return scores - peer_mean
+    return scores - scores.groupby(industries).transform("mean")
 
 
 def momentum_acceleration(prices: pd.DataFrame) -> pd.Series:
-    periods = {w: sharpe_r2(prices, w).iloc[-1] for w in (21, 63, 126, 189, 252)}
-    short = 0.10 * zscore(periods[21]) + 0.35 * zscore(periods[63]) + 0.55 * zscore(periods[126])
-    long = 0.45 * zscore(periods[189]) + 0.55 * zscore(periods[252])
+    """Short-vs-long risk-adjusted momentum acceleration."""
+    prices = clean_prices(prices)
+    current = {window: sharpe(prices, window).iloc[-1] for window in MOMENTUM_WINDOWS}
+    short = 0.10 * _series_z(current[21]) + 0.35 * _series_z(current[63]) + 0.55 * _series_z(current[126])
+    long = 0.45 * _series_z(current[189]) + 0.55 * _series_z(current[252])
     return short - long
+
+
+def _series_z(series: pd.Series) -> pd.Series:
+    valid = series.dropna()
+    if len(valid) < 3 or valid.std() == 0:
+        return pd.Series(0.0, index=series.index)
+    return (series - valid.mean()) / valid.std()
+
+
+def zscore(s: pd.Series, clip: float = 3.0) -> pd.Series:
+    return _series_z(s).clip(-clip, clip)

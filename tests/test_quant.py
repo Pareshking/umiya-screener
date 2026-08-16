@@ -11,24 +11,23 @@ def sample_data():
     base = rng.normal(0.0004, 0.015, (400, 5))
     prices = 100 * np.exp(np.cumsum(base, axis=0))
     close = pd.DataFrame(prices, index=dates, columns=symbols)
-    high = close * 1.01
-    low = close * 0.99
     volume = pd.DataFrame(100000, index=dates, columns=symbols)
-    return close, high, low, volume
+    return close, volume
 
 
 def test_momentum_shape_and_finiteness():
-    close, *_ = sample_data()
+    close, _ = sample_data()
     score = momentum_score(close)
     assert score.shape == close.shape
     assert score.iloc[-1].notna().any()
 
 
-def test_technical_snapshot():
-    close, high, low, volume = sample_data()
-    out = technical_snapshot(close, high, low, volume)
+def test_technical_snapshot_uses_only_canonical_fields():
+    close, volume = sample_data()
+    out = technical_snapshot(close, volume)
     assert len(out) == 5
-    assert {"CMP", "EMA 50", "EMA 200", "ATR", "ATR %"}.issubset(out.columns)
+    assert {"CMP", "EMA 50", "EMA 200", "52W High", "Volume Ratio"}.issubset(out.columns)
+    assert "ATR" not in out.columns
     assert np.isfinite(out["CMP"]).all()
 
 
@@ -42,13 +41,13 @@ def test_industry_relative():
 
 
 def test_acceleration():
-    close, *_ = sample_data()
+    close, _ = sample_data()
     accel = momentum_acceleration(close)
     assert len(accel) == close.shape[1]
 
 
 def test_clean_prices_preserves_partial_missing_data():
-    close, *_ = sample_data()
+    close, _ = sample_data()
     bad = close.copy()
     bad.iloc[10, :] = np.nan
     bad.iloc[11, :4] = np.nan

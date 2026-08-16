@@ -1,2 +1,10 @@
--r backend/requirements.txt
-pytest>=8.0,<9
+numpy
+pandas
+pyarrow
+requests
+yfinance
+fastapi
+uvicorn
+pydantic
+boto3
+pytest

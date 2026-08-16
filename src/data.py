@@ -8,7 +8,20 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-from .config import EXPECTED_INDEX_COUNTS, HTTP_HEADERS, INDEX_LOCAL_PATHS, INDEX_URLS, NSE_HOME_URL, NSE_REQUEST_RETRIES, NSE_REQUEST_TIMEOUT, MAX_DATA_AGE_DAYS, MIN_HISTORY
+from .config import (
+    EXPECTED_INDEX_COUNTS,
+    HTTP_HEADERS,
+    INDEX_LOCAL_PATHS,
+    INDEX_URLS,
+    MAX_DATA_AGE_DAYS,
+    MIN_HISTORY,
+    NSE_HOME_URL,
+    NSE_REQUEST_RETRIES,
+    NSE_REQUEST_TIMEOUT,
+)
+
+PRICE_FIELDS = ("adj_close", "volume")
+HISTORY_YEARS = 10
 
 
 def _download_nse_csv(url: str) -> bytes:
@@ -91,42 +104,65 @@ def _parse_universe(raw: bytes) -> pd.DataFrame:
     return out[~out["Symbol"].str.startswith("DUMMY")].drop_duplicates("Symbol").reset_index(drop=True)
 
 
-def fetch_ohlcv(symbols: Sequence[str], period: str = "2y") -> dict[str, pd.DataFrame]:
-    """Download daily OHLCV and normalize yfinance's MultiIndex output."""
+def _ten_year_window() -> tuple[str, str]:
+    end = pd.Timestamp.today().normalize() + pd.Timedelta(days=1)
+    start = end - pd.DateOffset(years=HISTORY_YEARS)
+    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+
+def fetch_prices(symbols: Sequence[str], start: str | None = None, end: str | None = None) -> dict[str, pd.DataFrame]:
+    """Download the canonical V2 dataset: 10 years of Adjusted Close and Volume."""
     tickers = [s if s.endswith(".NS") else f"{s}.NS" for s in symbols]
     if not tickers:
-        return {k: pd.DataFrame() for k in ("open", "high", "low", "close", "volume")}
-    raw = yf.download(tickers, period=period, auto_adjust=False, progress=False, group_by="column", threads=True)
+        return {field: pd.DataFrame() for field in PRICE_FIELDS}
+    default_start, default_end = _ten_year_window()
+    raw = yf.download(
+        tickers,
+        start=start or default_start,
+        end=end or default_end,
+        auto_adjust=False,
+        actions=False,
+        progress=False,
+        group_by="column",
+        threads=True,
+    )
     if raw.empty:
-        return {k: pd.DataFrame() for k in ("open", "high", "low", "close", "volume")}
+        return {field: pd.DataFrame() for field in PRICE_FIELDS}
+    if not isinstance(raw.columns, pd.MultiIndex):
+        raise ValueError("Expected yfinance MultiIndex output for the NSE-750 download")
     result: dict[str, pd.DataFrame] = {}
-    for field in ("Open", "High", "Low", "Close", "Volume"):
-        if isinstance(raw.columns, pd.MultiIndex):
-            level0 = [str(x) for x in raw.columns.get_level_values(0)]
-            frame = raw[field].copy() if field in level0 else pd.DataFrame(index=raw.index)
-        else:
-            frame = raw[[field]].copy() if field in raw.columns else pd.DataFrame(index=raw.index)
+    for source_field, output_field in (("Adj Close", "adj_close"), ("Volume", "volume")):
+        if source_field not in raw.columns.get_level_values(0):
+            raise ValueError(f"Yahoo response is missing required field: {source_field}")
+        frame = raw[source_field].copy()
         frame.columns = [str(c).replace(".NS", "").upper() for c in frame.columns]
-        result[field.lower()] = frame.sort_index()
+        frame = frame.reindex(columns=[str(s).replace(".NS", "").upper() for s in symbols])
+        frame.index = pd.to_datetime(frame.index).tz_localize(None)
+        result[output_field] = frame.sort_index()
     return result
 
 
-def latest_market_date(close: pd.DataFrame) -> pd.Timestamp:
+def fetch_ohlcv(symbols: Sequence[str], period: str = "10y") -> dict[str, pd.DataFrame]:
+    """Temporary compatibility name; returns only the V2 Adj Close + Volume fields."""
+    return fetch_prices(symbols)
+
+
+def latest_market_date(adj_close: pd.DataFrame) -> pd.Timestamp:
     """Return one common market as-of date for the entire universe."""
-    valid_dates = close.notna().any(axis=1)
+    valid_dates = adj_close.notna().any(axis=1)
     if not valid_dates.any():
-        raise ValueError("Price dataset contains no valid observations")
-    return pd.Timestamp(close.index[valid_dates][-1]).normalize()
+        raise ValueError("Adjusted Close dataset contains no valid observations")
+    return pd.Timestamp(adj_close.index[valid_dates][-1]).normalize()
 
 
-def eligible_symbols(close: pd.DataFrame, as_of: pd.Timestamp | None = None) -> pd.DataFrame:
-    """Find stocks with >=126 observations and latest data <=3 days stale."""
-    if close.empty:
+def eligible_symbols(adj_close: pd.DataFrame, as_of: pd.Timestamp | None = None) -> pd.DataFrame:
+    """Find stocks with >=126 observations and latest data <=3 calendar days stale."""
+    if adj_close.empty:
         return pd.DataFrame(columns=["Symbol", "History Days", "Last Price Date", "Data Age Days"])
-    as_of = pd.Timestamp(as_of or latest_market_date(close)).normalize()
+    as_of = pd.Timestamp(as_of or latest_market_date(adj_close)).normalize()
     records = []
-    for symbol in close.columns:
-        series = close[symbol].dropna()
+    for symbol in adj_close.columns:
+        series = adj_close[symbol].dropna()
         if len(series) < MIN_HISTORY:
             continue
         last_date = pd.Timestamp(series.index[-1]).normalize()
@@ -137,18 +173,10 @@ def eligible_symbols(close: pd.DataFrame, as_of: pd.Timestamp | None = None) -> 
 
 
 def align_trailing_to_as_of(frame: pd.DataFrame, symbols: Sequence[str], as_of: pd.Timestamp) -> pd.DataFrame:
-    """Use one common as-of date; only carry a fresh stock's trailing gap to it.
+    """Reindex to the common universe without imputing missing prices or volume.
 
-    Historical interior gaps remain NaN. This is not general missing-data
-    imputation; it only handles a stock that is <=3 days behind the common
-    market date after freshness validation.
+    The function name is retained temporarily for compatibility with the
+    unfinished Phase 3 service. V2 does not forward-fill trailing observations.
+    Freshness is validated separately by ``eligible_symbols``.
     """
-    out = frame.reindex(columns=list(symbols)).copy()
-    for symbol in out.columns:
-        valid = out[symbol].dropna()
-        if valid.empty:
-            continue
-        last_date = pd.Timestamp(valid.index[-1]).normalize()
-        if last_date < as_of:
-            out.loc[out.index > last_date, symbol] = valid.iloc[-1]
-    return out
+    return frame.reindex(columns=list(symbols)).copy()
