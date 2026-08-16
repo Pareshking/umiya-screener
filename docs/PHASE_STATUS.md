@@ -43,4 +43,4 @@ No quantitative methodology, API contract, server-side calculation or data archi
 
 ## Current release state
 
-**Phase 10 is release-ready in source, but not yet formally complete.** The remaining gate is a successful Vercel deployment after the current build-rate limit clears, followed by a real browser/device acceptance pass. Documentation must only be changed to COMPLETE after that evidence exists.
+**Phase 10 is release-ready in source, but not yet formally complete.** Vercel deployment capacity has recovered and an older deployment (`431feb7`) reached Ready, but the latest Phase 10 `main` source still needs one successful Vercel deployment. After that, the user must perform the final desktop/mobile Screener and individual-stock UI/UX acceptance pass. Documentation must only be changed to COMPLETE after that evidence exists.
