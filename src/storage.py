@@ -78,6 +78,7 @@ def download_prefix(store: ObjectStoreConfig, prefix: str, destination: Path) ->
     rejected so a remote outage cannot look like a valid empty dataset.
     """
     client = _client(store)
+    destination = destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
     count = 0
     paginator = client.get_paginator("list_objects_v2")
@@ -88,7 +89,9 @@ def download_prefix(store: ObjectStoreConfig, prefix: str, destination: Path) ->
             relative = key[len(root):]
             if not relative:
                 continue
-            target = destination / relative
+            target = (destination / relative).resolve()
+            if target != destination and destination not in target.parents:
+                raise RuntimeError(f"Unsafe object-store path: {key}")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(client.get_object(Bucket=store.bucket, Key=key)["Body"].read())
             count += 1
