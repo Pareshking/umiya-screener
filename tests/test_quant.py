@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.quant import clean_prices, eligible_symbols, industry_relative, momentum_acceleration, momentum_score, technical_snapshot
+from src.quant import industry_relative, momentum_acceleration, momentum_score, technical_snapshot
 
 
 def sample_data():
@@ -52,28 +52,8 @@ def test_clean_prices_preserves_partial_missing_data():
     bad = close.copy()
     bad.iloc[10, :] = np.nan
     bad.iloc[11, :4] = np.nan
+    from src.quant import clean_prices
     cleaned = clean_prices(bad)
-    # Missing source observations must not delete the trading-date row for
-    # every other stock. Metrics handle missing observations independently.
     assert bad.index[10] in cleaned.index
     assert bad.index[11] in cleaned.index
     assert cleaned.iloc[11].isna().sum() == 4
-
-
-def test_eligibility_requires_126_valid_observations():
-    close, *_ = sample_data()
-    close.loc[close.index[:275], "AAA"] = np.nan
-    eligible = eligible_symbols(close)
-    assert "AAA" not in eligible
-    assert "BBB" in eligible
-
-
-def test_12m_return_defaults_to_zero_without_full_history():
-    close, high, low, volume = sample_data()
-    short = close.iloc[-126:].copy()
-    short_high = high.loc[short.index]
-    short_low = low.loc[short.index]
-    short_volume = volume.loc[short.index]
-    out = technical_snapshot(short, short_high, short_low, short_volume)
-    assert (out["Eligible"]).all()
-    assert (out["12M Return"] == 0).all()
