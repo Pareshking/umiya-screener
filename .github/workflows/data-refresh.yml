@@ -78,3 +78,19 @@ jobs:
           export S3_REGION="auto"
           python scripts/publish_r2.py --dataset "$PRICE_PATH" --prefix "datasets/$(basename "$PRICE_PATH")" --pointer "pointers/latest-price-dataset.json"
           python scripts/publish_r2.py --dataset "$METRICS_PATH" --prefix "metrics/$(basename "$METRICS_PATH")" --pointer "pointers/latest-metrics-dataset.json"
+
+      - name: Smoke production readiness after publication
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+
+          base = "https://umiya-screener-api.onrender.com"
+          for path in ("/api/v1/live", "/api/v1/ready", "/api/v1/screener/metadata"):
+              with urllib.request.urlopen(base + path, timeout=30) as response:
+                  payload = json.load(response)
+                  if response.status != 200:
+                      raise SystemExit(f"{path}: unexpected HTTP {response.status}")
+                  print(path, json.dumps(payload, separators=(",", ":"))[:1000])
+          PY
