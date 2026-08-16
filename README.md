@@ -1,38 +1,77 @@
 # Umiya Screener
 
-A standalone NSE equity screener built as a clean successor to the existing Umiya terminal. The existing `Pareshking/Umiya` repository is reference-only and is never modified by this project.
+A clean rebuild of the Umiya NSE quantitative screener. The existing `Pareshking/Umiya` repository is reference-only and is never modified by this project.
 
-## Scope
+## Architecture
 
-- NSE Total Market / NSE 750-style universe support
-- Daily OHLCV data pipeline
-- Multi-window momentum ranking: 1M, 3M, 6M, 9M, 12M
-- Risk-adjusted momentum using return and volatility
-- 52-week-high proximity filter
-- 50/100/200 EMA trend filters
+```text
+Next.js frontend
+      ↓ JSON/HTTP
+FastAPI API
+      ↓
+Cached screener metric store
+      ↓
+Python quantitative engine + data loaders
+      ↓
+NSE / Yahoo Finance
+```
+
+The expensive market-wide calculation is performed once per backend refresh and retained in memory. Normal filter, sort and pagination requests operate on the prepared metric table instead of rerunning the complete application.
+
+## Current scope
+
+- NSE Total Market / deterministic NSE-750 working universe
+- Daily OHLCV data
+- 1M / 3M / 6M / 9M / 12M momentum windows
+- Risk-adjusted momentum and cross-sectional score
+- 52-week-high proximity
+- 50 / 100 / 200 EMA trend metrics
+- 3M / 6M Sharpe
+- 1Y R²
 - Momentum acceleration
 - Industry-relative momentum
-- ATR and persistence diagnostics
-- CSV export from the Streamlit screener
-- Unit tests for quantitative calculations
+- ATR, persistence and volume diagnostics
+- Fast API-side filtering, sorting and pagination
+- Responsive desktop table + mobile stock cards
 
-## Design principles
+## Local development
 
-1. No look-ahead bias.
-2. Explicit handling of insufficient history and missing data.
-3. Vectorized calculations wherever practical.
-4. Data acquisition and quantitative calculations remain separate.
-5. The old Umiya repository is read-only reference material.
-
-## Run locally
+### Backend
 
 ```bash
-python -m venv .venv
-# Windows: .venv\\Scripts\\activate
-# Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
-streamlit run app.py
+uvicorn backend.app.main:app --reload --port 8000
 ```
+
+API health: `http://localhost:8000/api/v1/health`
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+# create .env.local with NEXT_PUBLIC_API_URL=http://localhost:8000 if needed
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+The frontend contains a small demo dataset fallback, so the UI remains inspectable before the backend has finished its first market-data build.
+
+## Deployment target
+
+- Frontend: Vercel / Next.js
+- Backend: Render / FastAPI
+
+`render.yaml` contains the backend service definition.
+
+## Validation
+
+GitHub Actions validates both the Python engine and the Next.js production build on pushes and pull requests.
+
+## Reference project
+
+`Pareshking/Umiya` is used only to reproduce and validate quantitative methodology and existing product behavior. It must not be modified by this project.
 
 ## Disclaimer
 
