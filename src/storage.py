@@ -70,6 +70,21 @@ def read_pointer(store: ObjectStoreConfig, pointer_key: str) -> str:
     return prefix
 
 
+def validate_pointer_prefix(prefix: str, expected_root: str) -> str:
+    """Validate a pointer target before using it as an object-store prefix.
+
+    Pointer values are data, not trusted paths. Restrict them to the namespace
+    used by the caller and reject traversal-like components so a compromised or
+    malformed pointer cannot redirect dataset hydration to another prefix.
+    """
+    value = prefix.strip().replace("\\", "/")
+    root = expected_root.strip("/")
+    parts = [part for part in value.split("/") if part]
+    if not parts or parts[0] != root or any(part in {".", ".."} for part in parts):
+        raise RuntimeError(f"Invalid object-store pointer target: {prefix}")
+    return "/".join(parts)
+
+
 def download_prefix(store: ObjectStoreConfig, prefix: str, destination: Path) -> int:
     """Download a complete prefix into a temporary destination.
 
