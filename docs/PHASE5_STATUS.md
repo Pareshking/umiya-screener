@@ -1,33 +1,26 @@
 # Phase 5 Status
 
-**Status: COMPLETE**
+**Implementation complete; formal closure pending one housekeeping item.**
 
-Phase 5 production deployment and hardening is complete.
+## Remaining gate
 
-Verified production path:
+Verify/configure the Cloudflare R2 bucket's object lifecycle/retention policy so old immutable dataset versions do not accumulate indefinitely.
 
-```text
-GitHub Actions
- → Cloudflare R2
- → Render FastAPI
- → Vercel Next.js
- → Production Screener
-```
+Recommended initial policy:
 
-Verified gates:
+- `datasets/` → expire historical versions after 30 days
+- `metrics/` → expire historical versions after 30 days
+- `pointers/` → no historical-data expiration rule
+- incomplete multipart uploads → abort after 7 days
 
-- real NSE 750/Yahoo validation
-- R2 publication and runtime hydration
-- Render deployment
-- Vercel deployment
-- production CORS
-- API health/metadata/query/export
-- stock detail and chart
-- error handling
-- frontend availability
-- automated production smoke
-- APCOTEXIND injected-stock test path
+The 30-day retention is a proposed starting point, not yet a verified production setting. Confirm that the active/latest dataset remains protected by the publication/retention design.
 
-The remaining performance, mobile, lifecycle and deeper recovery work is intentionally moved to Phase 6/7.
+Cloudflare documents lifecycle rules as bucket-level configuration and notes that objects are typically removed within 24 hours after their lifecycle expiration takes effect. citeturn0search0
 
-**Next phase: Phase 6 — Real-world validation and performance.**
+## APCOTEXIND clarification
+
+`APCOTEXIND.NS` is a data-pipeline/newly-injected-stock test fixture. **It was never intended to be shown in the production frontend.** Do not describe it as a frontend end-to-end stock test or modify the canonical NSE 750 solely to display it.
+
+## After closure
+
+Formally close Phase 5 and begin Phase 6. Phase 6 starts with deployed performance/UX measurement, not architecture redesign.
