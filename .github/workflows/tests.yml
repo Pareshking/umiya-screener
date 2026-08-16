@@ -91,6 +91,49 @@ jobs:
           (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
           print(json.dumps(summary, indent=2))
           PY
+      - name: Validate Phase 2 metrics against the real 750-stock dataset
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          from src.data import load_universe
+          from backend.app import service
+
+          src = Path("data_cache/yahoo_10y_history_test")
+          target = Path("data_cache/price_history/ci_phase2")
+          target.mkdir(parents=True, exist_ok=True)
+          adj = pd.read_parquet(src / "adj_close.parquet")
+          vol = pd.read_parquet(src / "volume.parquet")
+          universe = load_universe().drop_duplicates("Symbol").copy()
+          symbols = universe["Symbol"].astype(str).str.upper().tolist()
+          adj = adj.reindex(columns=symbols)
+          vol = vol.reindex(columns=symbols)
+          as_of = adj.index.max()
+          eligibility = pd.DataFrame({
+              "Symbol": symbols,
+              "Last Price Date": [adj[s].dropna().index.max() if adj[s].notna().any() else pd.NaT for s in symbols],
+              "Data Age Days": [int((as_of - adj[s].dropna().index.max()).days) if adj[s].notna().any() else 9999 for s in symbols],
+          })
+          adj.to_parquet(target / "adj_close.parquet")
+          vol.to_parquet(target / "volume.parquet")
+          eligibility.to_parquet(target / "eligibility.parquet", index=False)
+          universe.to_parquet(target / "universe.parquet", index=False)
+          (target / "metadata.json").write_text(json.dumps({"market_as_of": str(as_of.date()), "schema_version": "1.1"}), encoding="utf-8")
+          (Path("data_cache/price_history") / "LATEST.json").write_text(json.dumps({"dataset": "ci_phase2"}), encoding="utf-8")
+          frame, built_at = service.build_metric_frame()
+          required = {"Momentum Score", "Rank", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "R² 1Y", "Industry Relative", "Acceleration", "EMA 50", "EMA 100", "EMA 200", "Volume Ratio"}
+          missing = sorted(required - set(frame.columns))
+          if missing:
+              raise RuntimeError(f"Phase 2 metric columns missing: {missing}")
+          if len(frame) != 750 or frame["Symbol"].nunique() != 750:
+              raise RuntimeError(f"Expected 750 metric rows/symbols, got {len(frame)} rows and {frame['Symbol'].nunique()} symbols")
+          if frame["Momentum Score"].notna().sum() < 700:
+              raise RuntimeError("Unexpectedly sparse momentum scores")
+          print(f"Phase 2 real-data metric build passed: {len(frame)} stocks, built_at={built_at.isoformat()}")
+          PY
       - name: Upload Yahoo data test artifact
         if: always()
         uses: actions/upload-artifact@v4
