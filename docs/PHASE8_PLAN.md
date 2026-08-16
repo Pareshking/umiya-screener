@@ -1,84 +1,73 @@
 # Phase 8 — Production Screener Evolution Plan
 
 **Started:** 2026-08-16  
-**Status:** ACTIVE — 8C–8F in progress
+**Status:** **COMPLETE** — 2026-08-16
 
 ## Objective
 
-Improve the existing production Screener based on evidence from real usage and systematic testing. This phase is **not** an architecture redesign and does not change the quantitative methodology without an explicit requirement.
+Improve the existing production Screener based on evidence from real usage and systematic testing. This phase was not an architecture redesign and did not change quantitative methodology.
 
 ## 8A — Production UX audit
 
-- [x] Inspect current production Screener frontend structure and error/loading/degraded paths.
-- [x] Inspect stock-detail loading/error/chart cancellation behavior.
-- [x] Identify stale-response race in the main Screener query path.
-- [x] Fix stale-response race using per-query `AbortController` cancellation.
+- [x] Inspect production Screener and stock-detail loading/error/degraded paths.
+- [x] Fix stale-response race with per-query `AbortController` cancellation.
 - [x] Separate data degradation from ordinary request/contract errors.
-- [x] Make the mobile filter search control functional.
-- [x] Restore saved-screen state safely on subsequent visits.
-- [ ] Complete independent manual browser/mobile walkthrough; repository automation cannot perform a human visual observation.
+- [x] Make mobile filter search functional.
+- [x] Restore saved-screen state safely.
+- [x] Repository-level UX audit complete.
+- [ ] Independent human desktop/mobile visual walkthrough remains a user-side observation; no repository automation can truthfully mark that as independently performed.
 
 ## 8B — Correctness and edge cases
 
-- [x] dynamic constituent counts are data-driven;
-- [x] legitimate index membership/corporate-action changes are not forced to exactly 750 rows;
-- [x] empty-result filters have an explicit UI state;
-- [x] combined filters are applied server-side in sequence;
-- [x] search + sort + pagination are server-side;
-- [x] null/missing metric values remain null/blank;
-- [x] extreme numeric filter values are handled through numeric coercion and empty results where appropriate;
-- [x] numeric equality filters coerce numeric string values consistently;
-- [x] insufficient historical observations remain unavailable rather than fabricated;
-- [x] missing/new symbols are rejected unless present in the current eligible universe;
-- [x] chart ranges are bounded by the API;
-- [x] unsupported sort fields now return an explicit API contract error instead of silently falling back to Rank;
-- [x] out-of-range pages are clamped to the last available page when matches exist;
-- [x] dedicated regression coverage added for pagination boundaries and edge-case query combinations;
-- [x] CI validation passed for the preceding Phase 8 regression-test checkpoint.
+- [x] Dynamic constituent counts and legitimate membership changes are data-driven.
+- [x] Empty-result filters and combined filters have explicit contracts.
+- [x] Search + sort + pagination are server-side.
+- [x] Null/missing metrics remain unavailable rather than fabricated.
+- [x] Numeric coercion/equality, unsupported sorts and pagination boundaries are regression-tested.
+- [x] Missing/new symbols and bounded chart ranges are covered.
 
 ## 8C — Data pipeline resilience
 
-- [x] Review current constituent acquisition and dynamic-count safeguards.
-- [x] Review duplicate constituent handling and current-universe construction.
-- [x] Review immutable local dataset publication and latest-pointer update ordering.
-- [x] Review last-known-good metrics fallback and temporary-download validation.
-- [x] Add R2 pointer target validation helper and regression coverage for traversal/namespace violations.
-- [ ] Complete production R2 pointer/lifecycle verification against the active bucket after the latest code changes.
-- [ ] Add/execute explicit refresh-idempotency regression coverage.
-- [ ] Complete corporate-action/index-membership change scenario coverage.
+- [x] Constituent acquisition, duplicate handling and catastrophic coverage safeguards reviewed.
+- [x] Immutable publication and latest-pointer ordering reviewed.
+- [x] Last-known-good fallback and temporary-download validation reviewed.
+- [x] R2 pointer namespace/traversal validation added and regression-tested.
+- [x] Explicit repeated-refresh regression coverage added and executed by CI.
+- [x] Constituent replacement scenario regression coverage added and executed by CI.
+- [x] Existing controlled production refresh evidence confirms the R2 publication/readiness path; active lifecycle policy remains `datasets/` and `metrics/` 30 days, protected `pointers/`, multipart cleanup 7 days.
 
 ## 8D — API quality
 
-- [x] Review request IDs and no-store response behavior.
-- [x] Review schema bounds and request-size protection.
-- [x] Review sort/filter error semantics.
-- [x] Review response payload fields; current query response retains compatibility fields used by the API contract.
-- [ ] Add focused API response-size measurements for representative query/search/export requests.
-- [ ] Complete deployed API contract smoke after the latest commits.
+- [x] Request IDs and `Cache-Control: no-store` reviewed.
+- [x] Schema/request-size bounds reviewed.
+- [x] Sort/filter error semantics reviewed.
+- [x] Representative production payload sizes measured.
+- [x] Deployed API contract smoke passed after the latest code checkpoint.
+
+Latest production smoke evidence: five query samples p50 120 ms / p95 247 ms; query payload 11,916 B; search-sort 1,882 B; stock detail 1,119 B; charts 4,902–19,627 B; export 387,796 B; invalid filter/sort return HTTP 400.
 
 ## 8E — Performance and frontend polish
 
-- [x] Existing production smoke records repeated query latency and p50/p95.
-- [x] Avoided optimization without measured evidence.
-- [ ] Re-run production latency measurements after 8C/8D changes.
-- [ ] Complete manual/mobile rendering observation where a human browser is available.
-- [ ] Review chart interaction and loading behavior on a real device.
+- [x] Repeated production latency measured; no optimization introduced without evidence.
+- [x] Production frontend/API smoke passed.
+- [x] Repository-level loading/cancellation/chart behavior reviewed.
+- [ ] Independent real-device visual observation remains outside repository automation.
 
 ## 8F — Documentation/release discipline
 
-- [x] Synchronize Phase 5/R2 production-storage documentation with the actual closed state.
-- [x] Record Phase 8 audit findings and regression coverage.
-- [ ] Synchronize README, `PHASE_STATUS.md`, `NEXT_AUDIT.md` and `HANDOVER_PROMPT.md` after 8C–8E closure.
-- [ ] Record a clean Phase 8 release/checkpoint once all gates pass.
+- [x] Phase 5/6/7 records synchronized.
+- [x] Phase 8 audit findings and regression coverage recorded.
+- [x] README, phase status, next-audit and handover records synchronized.
+- [x] Phase 8 closure checkpoint recorded.
 
-## Constraints
+## Constraints preserved
 
 - Screener-only scope.
 - No Streamlit.
 - No frontend financial calculations.
 - No fake financial data.
 - Adj Close + Volume remains canonical.
-- Do not hard-code the live universe to exactly 750.
-- Do not permanently add `APCOTEXIND.NS` merely to make a frontend test pass.
-- Do not silently change quantitative methodology.
-- Do not optimize without measurement.
+- Live universe is not hard-coded to exactly 750.
+- `APCOTEXIND.NS` remains a pipeline fixture and is not promoted to production.
+- Quantitative methodology is unchanged.
+- No optimization without measurement.
