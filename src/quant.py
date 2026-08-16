@@ -45,8 +45,6 @@ def returns(close: pd.DataFrame, windows: Sequence[int] = MOMENTUM_WINDOWS) -> p
     labels = {21: "1M Return", 63: "3M Return", 126: "6M Return", 189: "9M Return", 252: "12M Return"}
     for window in windows:
         values = _return_by_observations(close, window)
-        # V2 policy: 12M ROC is zero only when unavailable, as explicitly
-        # documented; other missing lookbacks remain NaN.
         if window == 252:
             values = values.fillna(0.0)
         out[labels[window]] = values
@@ -54,25 +52,37 @@ def returns(close: pd.DataFrame, windows: Sequence[int] = MOMENTUM_WINDOWS) -> p
 
 
 def rolling_r2(prices: pd.DataFrame, window: int = 252) -> pd.DataFrame:
-    """R² of log-price versus a linear time trend."""
+    """Vectorized R² of log-price versus a linear time trend.
+
+    Uses rolling sufficient statistics instead of per-symbol rolling Python
+    callbacks. Missing observations invalidate a window; no imputation occurs.
+    """
     prices = clean_prices(prices)
     logp = np.log(prices.where(prices > 0))
-    result = pd.DataFrame(index=prices.index, columns=prices.columns, dtype=float)
-    for symbol in prices.columns:
-        series = logp[symbol]
-        # Use contiguous valid observations; do not forward-fill gaps.
-        def calc(values: np.ndarray) -> float:
-            if np.isnan(values).sum() > 0:
-                return np.nan
-            t = np.arange(len(values), dtype=float)
-            corr = np.corrcoef(t, values)[0, 1]
-            return float(corr * corr) if np.isfinite(corr) else np.nan
-        result[symbol] = series.rolling(window, min_periods=window).apply(calc, raw=True)
-    return result
+    n = len(logp)
+    if n < window:
+        return pd.DataFrame(np.nan, index=prices.index, columns=prices.columns, dtype=float)
+
+    t = pd.Series(np.arange(n, dtype=float), index=prices.index)
+    sum_t = float(window * (window - 1) / 2.0)
+    sum_t2 = float(window * (window - 1) * (2 * window - 1) / 6.0)
+    var_t = sum_t2 - (sum_t * sum_t / window)
+    if var_t <= 0:
+        return pd.DataFrame(np.nan, index=prices.index, columns=prices.columns, dtype=float)
+
+    valid = logp.notna().rolling(window, min_periods=window).sum().eq(window)
+    sum_y = logp.rolling(window, min_periods=window).sum()
+    sum_y2 = (logp * logp).rolling(window, min_periods=window).sum()
+    sum_ty = logp.mul(t, axis=0).rolling(window, min_periods=window).sum()
+
+    cov_num = sum_ty - (sum_t * sum_y / window)
+    var_y = (sum_y2 - (sum_y * sum_y / window)).clip(lower=0)
+    r2 = (cov_num * cov_num) / (var_t * var_y.replace(0, np.nan))
+    return r2.where(valid).clip(0, 1)
 
 
 def sharpe(close: pd.DataFrame, window: int) -> pd.DataFrame:
-    """Cumulative log return divided by same-window raw return SD, scaled by sqrt(window)."""
+    """Cumulative log return divided by same-window daily-log-return SD, scaled by sqrt(window)."""
     close = clean_prices(close)
     logret = np.log(close / close.shift(1).replace(0, np.nan))
     cumulative = np.log(close / close.shift(window).replace(0, np.nan))
