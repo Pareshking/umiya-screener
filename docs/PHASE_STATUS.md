@@ -39,8 +39,10 @@ Complete: API-driven stock detail and adjusted-close charts.
 
 Implemented the product-facing visual/UX upgrade for both the Screener and individual stock research page. The release candidate includes stronger information hierarchy, responsive desktop/tablet/mobile layouts, improved filters/search/table/cards, stock research hero/signals, price-structure chart, momentum/returns, technical structure and research-context sections.
 
+Following human visual review of the deployed preview, the desktop Screener was refined further to remove the fixed sidebar and oversized dashboard treatment. The latest source now uses a compact research-terminal presentation: no persistent desktop sidebar/header chrome, compact filter toolbar, compact KPI information strip and more vertical/horizontal room for ranked results. Mobile navigation remains purpose-built.
+
 No quantitative methodology, API contract, server-side calculation or data architecture changes were introduced.
 
 ## Current release state
 
-**Phase 10 is release-ready in source, but not yet formally complete.** Vercel deployment capacity has recovered and an older deployment (`431feb7`) reached Ready, but the latest Phase 10 `main` source still needs one successful Vercel deployment. After that, the user must perform the final desktop/mobile Screener and individual-stock UI/UX acceptance pass. Documentation must only be changed to COMPLETE after that evidence exists.
+**Phase 10 remains a release candidate, not formally complete.** The latest source is ready and includes the human-feedback-driven compact desktop refinement. The remaining gates are one successful Vercel deployment of the latest `main` source and the final desktop/mobile Screener + individual-stock acceptance pass.
