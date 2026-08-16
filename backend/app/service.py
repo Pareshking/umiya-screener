@@ -23,7 +23,7 @@ class MetricsCacheStale(RuntimeError):
     """Raised when the analytical dataset is older than the configured TTL."""
 
 
-def _load_phase1_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def _load_phase1_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     pointer = PRICE_ROOT / "LATEST.json"
     if not pointer.exists():
         raise MetricsCacheUnavailable("Phase 1 price dataset is not published. Run scripts/build_data.py.")
@@ -38,27 +38,25 @@ def _load_phase1_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         close = pd.read_parquet(dataset / "adj_close.parquet")
         volume = pd.read_parquet(dataset / "volume.parquet")
         eligibility = pd.read_parquet(dataset / "eligibility.parquet")
-    except (OSError, ValueError, ImportError) as exc:
+        universe = pd.read_parquet(dataset / "universe.parquet")
+        metadata = json.loads((dataset / "metadata.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, ImportError, json.JSONDecodeError) as exc:
         raise MetricsCacheUnavailable("Published Phase 1 dataset cannot be read.") from exc
-    return close, volume, eligibility
+    return close, volume, eligibility, universe, metadata
 
 
 def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
     """Calculate the complete offline screener dataset from Phase 1 data."""
-    close, volume, eligibility = _load_phase1_dataset()
+    close, volume, eligibility, universe, metadata = _load_phase1_dataset()
     symbols = eligibility["Symbol"].astype(str).tolist()
     close = close.reindex(columns=symbols)
     volume = volume.reindex(columns=symbols)
     if close.empty or volume.empty or not symbols:
         raise RuntimeError("Canonical Phase 1 dataset contains no eligible stocks.")
 
-    # Keep missing observations missing. Phase 1 already established the
-    # common market as-of date and freshness eligibility.
-    universe = _load_universe_from_phase1(symbols)
     scores = momentum_score(close).iloc[-1].rename("Momentum Score")
     acceleration = momentum_acceleration(close).rename("Acceleration")
     technical = technical_snapshot(close, volume)
-
     frame = universe.set_index("Symbol").reindex(symbols).join([scores, acceleration, technical], how="left")
     frame = frame.join(eligibility.set_index("Symbol")[["Last Price Date", "Data Age Days"]], how="left")
     frame["Industry Relative"] = industry_relative(frame["Momentum Score"], universe)
@@ -66,22 +64,9 @@ def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
     frame["R² 1Y"] = rolling_r2(close, 252).iloc[-1].reindex(frame.index)
     frame["3M Sharpe"] = sharpe(close, 63).iloc[-1].reindex(frame.index)
     frame["6M Sharpe"] = sharpe(close, 126).iloc[-1].reindex(frame.index)
-    metadata_path = PRICE_ROOT / "LATEST.json"
-    dataset_name = json.loads(metadata_path.read_text(encoding="utf-8"))["dataset"]
-    metadata = json.loads((PRICE_ROOT / dataset_name / "metadata.json").read_text(encoding="utf-8"))
     frame["Market As Of"] = pd.Timestamp(metadata["market_as_of"])
-    frame = frame.reset_index()
-    return frame, datetime.now(timezone.utc)
-
-
-def _load_universe_from_phase1(symbols: list[str]) -> pd.DataFrame:
-    """Use constituent metadata persisted by the Phase 1 build."""
-    # Phase 1 currently persists the canonical symbols in eligibility. For
-    # company/industry metadata, load the official universe again only during
-    # the offline metric build; the API never performs this network operation.
-    from src.data import load_universe
-    universe = load_universe()
-    return universe[universe["Symbol"].isin(symbols)].copy()
+    frame["Dataset Schema"] = metadata.get("schema_version", "1.1")
+    return frame.reset_index(), datetime.now(timezone.utc)
 
 
 def write_metric_cache(frame: pd.DataFrame, built_at: datetime) -> None:
