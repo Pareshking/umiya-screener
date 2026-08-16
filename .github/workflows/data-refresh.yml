@@ -2,7 +2,6 @@ name: scheduled-data-refresh
 
 on:
   schedule:
-    # 7:00 PM IST, Monday-Friday (13:30 UTC).
     - cron: "30 13 * * 1-5"
   workflow_dispatch:
 
@@ -16,7 +15,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -34,14 +33,17 @@ jobs:
       - name: Build canonical 10-year dataset
         run: python scripts/build_data.py
 
-      - name: Validate generated dataset
+      - name: Build screener metrics
+        run: python scripts/build_metrics.py
+
+      - name: Validate generated datasets
         run: python -m pytest tests -q
 
-      - name: Find latest dataset
-        id: dataset
+      - name: Find latest datasets
+        id: datasets
         shell: bash
         run: |
-          DATASET_PATH="$(python - <<'PY'
+          PRICE_PATH="$(python - <<'PY'
           from pathlib import Path
           import json
           root=Path('data_cache/price_history')
@@ -49,15 +51,25 @@ jobs:
           print(root/name)
           PY
           )"
-          echo "path=$DATASET_PATH" >> "$GITHUB_OUTPUT"
+          METRICS_PATH="$(python - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path('data_cache/metrics')
+          name=json.loads((root/'LATEST.json').read_text())['dataset']
+          print(root/name)
+          PY
+          )"
+          echo "price_path=$PRICE_PATH" >> "$GITHUB_OUTPUT"
+          echo "metrics_path=$METRICS_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Publish immutable dataset to R2
+      - name: Publish immutable datasets to R2
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          DATASET_PATH: ${{ steps.dataset.outputs.path }}
+          PRICE_PATH: ${{ steps.datasets.outputs.price_path }}
+          METRICS_PATH: ${{ steps.datasets.outputs.metrics_path }}
         run: |
           test -n "$R2_ACCOUNT_ID" || (echo "Missing R2_ACCOUNT_ID secret" && exit 1)
           test -n "$R2_ACCESS_KEY_ID" || (echo "Missing R2_ACCESS_KEY_ID secret" && exit 1)
@@ -68,5 +80,5 @@ jobs:
           export S3_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
           export S3_BUCKET="$R2_BUCKET"
           export S3_REGION="auto"
-          PREFIX="datasets/$(basename "$DATASET_PATH")"
-          python scripts/publish_r2.py --dataset "$DATASET_PATH" --prefix "$PREFIX" --pointer "pointers/latest-price-dataset.json"
+          python scripts/publish_r2.py --dataset "$PRICE_PATH" --prefix "datasets/$(basename "$PRICE_PATH")" --pointer "pointers/latest-price-dataset.json"
+          python scripts/publish_r2.py --dataset "$METRICS_PATH" --prefix "metrics/$(basename "$METRICS_PATH")" --pointer "pointers/latest-metrics-dataset.json"
