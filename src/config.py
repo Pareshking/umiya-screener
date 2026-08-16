@@ -13,8 +13,9 @@ BENCHMARK = "^NSEI"
 INDEX_UNIVERSE = "NIFTY 750"
 MIN_HISTORY = 63
 
-# These five official NSE broad-market constituent sets are intended to form
-# the research universe: 50 + 50 + 150 + 250 + 250 = 750 stocks.
+# Canonical NSE Indices constituent sources used to build the Umiya 750
+# research universe. Nifty 500 consists of Nifty 50 + Next 50 + Midcap 150
+# + Smallcap 250; Nifty Microcap 250 adds the next microcap segment.
 INDEX_URLS = {
     "NIFTY 50": "https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv",
     "NIFTY NEXT 50": "https://www.niftyindices.com/IndexConstituent/ind_niftynext50list.csv",
@@ -23,14 +24,21 @@ INDEX_URLS = {
     "NIFTY MICROCAP 250": "https://www.niftyindices.com/IndexConstituent/ind_niftymicrocap250_list.csv",
 }
 
+EXPECTED_INDEX_COUNTS = {
+    "NIFTY 50": 50,
+    "NIFTY NEXT 50": 50,
+    "NIFTY MIDCAP 150": 150,
+    "NIFTY SMALLCAP 250": 250,
+    # NSE documentation describes this as a 250-stock index. We validate
+    # source data rather than silently forcing the count if NSE publishes a
+    # temporary constituent-count discrepancy.
+    "NIFTY MICROCAP 250": 250,
+}
+
 INDEX_LOCAL_PATHS = {
     name: DATA_DIR / "indices" / f"{name.lower().replace(' ', '_')}.csv"
     for name in INDEX_URLS
 }
-
-# Compatibility aliases for older imports.
-NIFTY_TOTAL_MARKET_URL = "https://niftyindices.com/IndexConstituent/ind_niftytotalmarket_list.csv"
-NIFTY_TOTAL_MARKET_LOCAL = DATA_DIR / "indices" / "ind_niftytotalmarket_list.csv"
 
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
