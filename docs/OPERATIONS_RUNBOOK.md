@@ -42,6 +42,19 @@ GitHub Actions repository secrets:
 
 Never commit credentials. Never put them in frontend environment variables.
 
+## R2 lifecycle / retention — manually verified
+
+The Cloudflare R2 production bucket lifecycle configuration was manually inspected and confirmed **OK on 2026-08-16**.
+
+Expected production policy:
+
+- `datasets/` → 30-day historical retention
+- `metrics/` → 30-day historical retention
+- `pointers/` → protected from the historical expiration rule
+- incomplete multipart uploads → 7-day cleanup
+
+This is a manual production-console verification, not an automated repository check.
+
 ## Runtime recovery
 
 If Render restarts, the API should bootstrap the latest published dataset from R2. A restart must not require a local rebuild of the market.
