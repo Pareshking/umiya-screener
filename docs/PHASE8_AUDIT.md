@@ -59,7 +59,7 @@ The audit covers the production Screener frontend, stock-detail frontend, FastAP
 
 **Risk:** Pointer contents are remote data and must not be treated as trusted filesystem-like paths.
 
-**Fix:** Added `validate_pointer_prefix()` and applied it before object-store prefix download. Absolute paths, traversal components and namespace mismatches are rejected by the helper; downloaded object keys continue to receive destination-path containment checks.
+**Fix:** Added `validate_pointer_prefix()` and applied it before object-store prefix download. The helper rejects absolute paths, traversal components and, when an expected namespace is supplied, namespace mismatches. The download path derives the prefix root only for syntax/traversal validation; dataset-specific callers still validate the downloaded contents against their required schema before activation.
 
 **Status:** **FIXED and regression-tested.**
 
