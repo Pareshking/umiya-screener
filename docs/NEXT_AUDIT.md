@@ -1,45 +1,80 @@
-# Next Audit — Phase 5 Closure
+# Next Audit / Handover — 2026-08-16
 
-Phase 5 is not formally closed yet.
+## Current checkpoint
 
-## Single remaining action
+Phase 5 implementation and automated validation are complete. The only unresolved Phase 5 item is **external R2 lifecycle verification/configuration**.
 
-Verify/configure the actual Cloudflare R2 bucket lifecycle/retention policy.
+Latest code-hardening checkpoint before documentation updates:
 
-### Recommended initial configuration
+`05cea11ccf2e975e96aea3ff5293384e2d584f27`
+
+Automated validation passed:
+
+- 50 Python tests
+- frontend build
+- 10-year Yahoo Adj Close + Volume test
+- real current-universe Phase 2 metric build
+- production smoke
+
+## Immediate next action
+
+Verify the actual Cloudflare R2 bucket lifecycle rules.
+
+Recommended starting configuration:
 
 ```text
-Historical datasets:
-  datasets/  → expire after 30 days
-  metrics/   → expire after 30 days
+Historical immutable datasets:
+  datasets/ → 30 days
+  metrics/  → 30 days
 
-Never expire through this rule:
+Do not expire through this rule:
   pointers/
 
 Incomplete multipart uploads:
   abort after 7 days
 ```
 
-The 30-day value is a proposed starting point and should be confirmed against the desired rollback window.
+The 30-day value is a recommendation, not a verified production setting. Confirm the rollback requirement before applying it.
 
-### Verification checklist
+## Verification checklist
 
 - [ ] Open the actual production R2 bucket.
-- [ ] Inspect Settings → Object Lifecycle Rules.
+- [ ] Inspect Object Lifecycle Rules.
 - [ ] Confirm historical `datasets/` retention.
 - [ ] Confirm historical `metrics/` retention.
-- [ ] Confirm `pointers/` is not accidentally covered by the delete rule.
-- [ ] Confirm the active/latest dataset remains available.
-- [ ] Configure the rule if absent or incorrect.
-- [ ] Save and re-check the final rule configuration.
+- [ ] Confirm `pointers/` is not accidentally covered.
+- [ ] Confirm the active/latest dataset cannot be deleted while current.
+- [ ] Confirm incomplete multipart-upload cleanup.
+- [ ] Configure/fix the rule if needed.
+- [ ] Save and re-check the final configuration.
 - [ ] Record the final retention period in this repository.
+- [ ] Then formally close Phase 5.
 
-Cloudflare's current R2 documentation supports lifecycle rules by prefix and age, and provides dashboard/Wrangler/API methods to inspect and configure them.
+## Phase 6 after closure
 
-## APCOTEXIND clarification
+Do not redesign first. Measure the deployed system first:
 
-`APCOTEXIND.NS` is a data-pipeline test fixture only. It was never intended to appear in the production frontend.
+1. frontend initial load
+2. unfiltered query
+3. numeric filter
+4. multi-filter
+5. sort/search
+6. stock detail/chart
+7. p50/p95 latency
+8. mobile UX
+9. Render cold start/R2 bootstrap
+10. data freshness/as-of correctness
 
-## After this action
+Only optimise a measured bottleneck.
 
-Mark Phase 5 complete, then start Phase 6 with real deployed performance and UX measurements.
+## Important constraints
+
+- Screener-only scope for now.
+- No Streamlit.
+- No frontend financial calculations.
+- No fake financial data.
+- No hard-coded assumption that the current NSE universe must equal exactly 750 rows.
+- Adj Close + Volume remains the canonical data contract unless explicitly changed.
+- Never turn unavailable long-history returns into artificial 0% values.
+- APCOTEXIND is a test fixture, not a production frontend stock.
+- Do not weaken tests/validation to make CI pass.
