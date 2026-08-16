@@ -22,64 +22,56 @@ Complete: API-driven stock detail and adjusted-close charts.
 ### Phase 5 — Production deployment / hardening
 **COMPLETE.**
 
-Production integration is in place: GitHub Actions refresh, Cloudflare R2 immutable publication, Render FastAPI, Vercel Next.js, runtime R2 hydration, production CORS and production smoke validation.
-
-Validated:
-
-- Python test suite: **50 passed** at latest Phase 5/6 checkpoint
-- Frontend build: **passed**
-- 10-year Yahoo Adj Close + Volume validation: **passed**
-- Real current-universe Phase 2 metric validation: **passed**
-- Production smoke: **passed**
-- R2 lifecycle policy configured/verified: `datasets/` 30 days, `metrics/` 30 days, `pointers/` protected, incomplete multipart uploads 7 days
+Validated deployment chain: GitHub Actions → Cloudflare R2 → Render FastAPI → Vercel Next.js. R2 lifecycle/retention is configured and verified; controlled refresh and post-publication readiness smoke passed.
 
 ### Phase 6 — Production measurement, correctness and performance
 **COMPLETE.**
 
-6A–6F completed on the deployed production path.
+6A–6F completed on the deployed production path. Benchmarking, performance bottleneck work, corporate-action/index-count resilience, APCOTEXIND pipeline fixture, security review and production validation are documented in `docs/PHASE6_STATUS.md`.
 
-Validated:
+### Phase 7 — Production operational hardening
+**COMPLETE.**
 
-- Production benchmark: all measured operations returned HTTP 200
-- Screener/filter/search/sort/detail operations: ~64–76 ms p50
-- Export: 343 ms p50 / 596 ms p95
-- Charts: ~66–68 ms p50; 3M 286 ms p95
-- Frontend HTTP response: 63 ms p50 / 206 ms p95
-- Earlier ~2.8 s chart cold-start outlier addressed with startup warming and per-symbol caching
-- Corporate-action/index-count resilience implemented and tested
-- APCOTEXIND injected-stock pipeline test exists
-- Production CORS, secret handling and dependency/security automation reviewed
-- Latest validation and production-smoke workflows passed
+7A–7F implementation and automated production gates passed. Controlled real refresh also passed. Manual visual UI walkthrough is the only non-automatable observation that was not independently performed by the development tooling; no known implementation blocker remains.
 
-See `docs/PHASE6_STATUS.md` for the detailed benchmark and acceptance record.
+See `docs/PHASE7_STATUS.md`.
 
-## Phase 7 — Production operational hardening
-**ACCEPTANCE — implementation and automated production gates passed.**
+## Phase 8 — Product evolution and production-quality Screener improvements
+**ACTIVE — start here.**
 
-7A–7F are implemented and merged to `main`.
+Phase 8 is not a redesign. Preserve the production architecture, quantitative methodology and canonical data contract.
 
-Validated:
+### 8A — Production UX audit
+- Audit current desktop/mobile Screener UX against the deployed API.
+- Identify only concrete usability/performance issues.
+- Verify READY/degraded/retry states and loading/error behavior.
 
-- liveness/readiness separation and freshness visibility
-- request correlation IDs and API no-store policy
-- R2/local recovery safeguards and object-store path safety
-- explicit 24-hour stale-data policy
-- post-refresh production readiness smoke
-- request-size and security hardening
-- Dependabot + CodeQL security automation
-- recovery/failure tests and explicit frontend degraded state
-- final merged-commit validation passed
-- final merged-commit production smoke passed, including liveness/readiness/health, metadata, query/search/sort, stock detail, charts, export, CORS and frontend HTTP availability
-- Vercel deployment status reported successful
+### 8B — Screener correctness and edge-case audit
+- Test dynamic constituent counts and legitimate index membership changes.
+- Test empty-result filters, extreme numeric values, sorting, pagination and search combinations.
+- Test missing/insufficient historical observations without fabricating values.
+- Test stock detail/chart behavior for valid, missing and newly appearing symbols.
 
-See `docs/PHASE7_STATUS.md` for the remaining manual acceptance gates.
+### 8C — Data pipeline resilience
+- Review constituent ingestion changes and corporate-action effects.
+- Verify refresh idempotency and last-known-good behavior.
+- Verify R2 lifecycle does not remove current pointers or the active dataset.
 
-### Remaining Phase 7 gates
+### 8D — API quality
+- Review API schema/error semantics, request IDs, no-store behavior and bounded requests.
+- Review response sizes and unnecessary payload fields.
+- Add regression tests for any discovered contract issue.
 
-- Manual browser/mobile walkthrough of READY/DEGRADED UI states
-- Observation of one normal scheduled refresh completing successfully without an invalid R2 pointer advance
+### 8E — Performance and frontend polish
+- Re-run targeted production latency measurements only where evidence indicates a problem.
+- Review mobile rendering, table usability, loading states and chart interaction.
+- Avoid optimisation without measurement.
 
-These are operational acceptance/observation gates, not pending implementation work.
+### 8F — Documentation and release discipline
+- Keep README, phase status, architecture, operations runbook and handover prompt synchronized.
+- Record every production-facing contract change with tests and documentation.
+- Establish a clean release/checkpoint procedure for future phases.
 
-## Phase 8 — Future Umiya modules
-Deferred until the Screener remains stable and production-quality after operational hardening.
+## Phase 8 working rule
+
+Do not add unrelated features or other Umiya modules until the Screener audit identifies a concrete need. Phase 8 is improvement of the existing production Screener, not a rewrite.
