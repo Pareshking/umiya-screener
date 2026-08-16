@@ -20,15 +20,21 @@ R2 pointer traversal/namespace validation is covered. Repeated refreshes and con
 
 ### 8D — API quality
 
-Request IDs, no-store semantics, bounded requests, explicit 400 contracts and representative production payload sizes were verified. Production smoke passed.
+Request IDs, no-store semantics, bounded requests, explicit 400 contracts and representative production payload sizes were verified. Production API contracts remain green; the remaining Phase 9 smoke issue is isolated to Render cold-start readiness timing.
 
 ### 8E — Performance/frontend polish
 
-Repeated production query latency remains measured at p50 120 ms / p95 247 ms on the latest smoke run. No unmeasured optimization was introduced.
+The latest pre-Phase-9 production run recorded query latency at p50 43 ms / p95 44 ms after the service warmed. No unmeasured optimization was introduced.
 
 ### 8F — Release discipline
 
 Phase 8 plan/status/audit/handover documentation is synchronized and this checkpoint closes Phase 8.
+
+## Phase 9 handoff
+
+Phase 9 is the final production release and acceptance checkpoint. It is documented in `docs/PHASE9_RELEASE.md` and is limited to cold-start-safe production smoke validation, CI/security gates, live contract checks and release documentation synchronization.
+
+The production smoke test was updated to allow an initial Render readiness wake-up probe and require a readiness retry after liveness confirms the service is alive. Phase 9 closes only after the updated smoke run passes.
 
 ## Remaining external observation
 
