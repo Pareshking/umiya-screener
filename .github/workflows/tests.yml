@@ -2,7 +2,7 @@ name: validation
 
 on:
   push:
-    branches: [main, "test/full-history-adjclose-volume-20260816"]
+    branches: [main, "test/full-history-adjclose-volume-20260816", "phase3-api-frontend-20260816"]
   pull_request:
     branches: [main]
 
