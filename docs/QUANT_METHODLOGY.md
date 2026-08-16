@@ -1,30 +1,32 @@
 # Umiya Screener V2 — Quantitative Methodology
 
-This document is the Phase 2 calculation contract. Every metric here is derivable from the canonical **Adjusted Close + Volume** dataset.
+This document is the calculation contract for the production V2 screener. Metrics are derived offline from the canonical **Adjusted Close + Volume** dataset and served as prepared analytical data.
 
 ## Lookback convention
 
-Daily observations are counted by valid trading observations, not calendar days. No missing observations are forward-filled.
+Daily observations are counted on the common market-date grid. The canonical V2 price matrix is forward-filled **only after each stock's first genuine observation**; values before first observation are never fabricated.
 
-- 1M = 21 observations
+- 1M = 21 trading days
 - 3M = 63
 - 6M = 126
 - 9M = 189
 - 12M = 252
 
+A metric requiring a full horizon is unavailable when that stock does not have enough genuine history for the requested window.
+
 ## Returns
 
-For lookback `N`, return is:
+For lookback `N`:
 
 `(latest valid Adjusted Close / Adjusted Close N observations earlier - 1) × 100`
 
-The latest valid observation is used only after Phase 1 freshness eligibility has been established.
+The latest valid observation is used only after Phase 1 freshness/eligibility validation.
 
-12M Return is explicitly `0` when 252 valid observations are unavailable, per the Phase 1 policy. Other unavailable lookbacks remain missing.
+Unavailable long-lookback returns remain missing. V2 does not manufacture a neutral 0% return for insufficient history.
 
 ## EMA trend
 
-EMA 50, EMA 100 and EMA 200 are calculated from Adjusted Close with the standard exponential weighting. The latest EMA is compared with the latest valid Adjusted Close.
+EMA 50, EMA 100 and EMA 200 are calculated from Adjusted Close with standard exponential weighting. The latest Adjusted Close is compared with the latest EMA.
 
 Outputs:
 
@@ -34,7 +36,7 @@ Outputs:
 
 ## 52-week proximity
 
-52-week high = maximum Adjusted Close over the most recent 252 observations in the dataset.
+52-week high = maximum Adjusted Close over the most recent 252 observations.
 
 `% From 52W High = (CMP / 52W High - 1) × 100`
 
@@ -47,17 +49,17 @@ Because the canonical dataset does not contain High prices, this is a **price-ba
 For lookback `N`:
 
 1. Calculate daily log returns.
-2. Calculate cumulative log return over `N` observations.
-3. Calculate the raw standard deviation of daily log returns over the same `N`-observation window.
-4. Normalize the cumulative log return by that same-window volatility and `sqrt(N)`.
+2. Calculate cumulative log return over the same `N`-observation window.
+3. Calculate the raw standard deviation of daily log returns over that same window.
+4. Normalize cumulative log return by the same-window volatility and `sqrt(N)`.
 
-This produces the V2 `Sharpe` diagnostic. It is intentionally a defined screening score, not a claim of a textbook annualized portfolio Sharpe ratio.
+This produces the V2 `Sharpe` diagnostic. It is a defined screening score, not a claim of a textbook annualized portfolio Sharpe ratio.
 
 ## Trend quality — R²
 
-For each lookback, regress log Adjusted Close against a linear time index over the full valid window. `R²` is the square of the correlation between log price and time.
+For each lookback, regress log Adjusted Close against a linear time index over the full requested window. `R²` is the square of the correlation between log price and time.
 
-R² is unavailable when the complete requested window is not available.
+R² is unavailable when the complete requested window is unavailable.
 
 ## Momentum score
 
@@ -65,7 +67,7 @@ For each lookback in 1M/3M/6M/9M/12M:
 
 `raw = Sharpe × R²`
 
-The raw cross-section is Z-scored on each market date and clipped to ±3. The configured weights are:
+The raw cross-section is Z-scored on each market date and clipped to ±3. Configured weights are:
 
 | Lookback | Weight |
 |---|---:|
@@ -75,7 +77,7 @@ The raw cross-section is Z-scored on each market date and clipped to ±3. The co
 | 9M | 20% |
 | 12M | 10% |
 
-Missing components contribute zero; they do not automatically remove an otherwise Phase-1-eligible stock.
+For each stock/date, unavailable horizon components are excluded and the remaining configured weights are renormalized. A Phase-1-eligible stock is therefore not assigned an artificial zero merely because a longer history window is unavailable.
 
 ## Momentum acceleration
 
@@ -91,26 +93,27 @@ Acceleration compares weighted short-term risk-adjusted momentum with weighted l
 
 ## Volume ratio
 
-Volume Ratio = latest valid Volume / latest 20-observation average Volume.
+`Volume Ratio = latest valid Volume / latest 20-observation average Volume`
 
 Volume is never imputed.
 
 ## Industry-relative momentum
 
-Industry Relative = stock Momentum Score − mean Momentum Score of stocks in the same Industry.
+`Industry Relative = stock Momentum Score − mean Momentum Score of stocks in the same Industry`
 
-## Deliberately excluded in V2 Phase 2
+## Deliberately excluded in V2
 
-ATR, true range, Chandelier Exit and any other metric requiring High/Low are **not calculated** because High/Low are not part of the canonical data contract.
-
-If these metrics are required later, the data-contract change must be separately approved, documented and tested.
+ATR, true range, Chandelier Exit and other metrics requiring High/Low are not calculated because High/Low are not part of the canonical data contract. Adding those metrics requires an explicit data-contract change.
 
 ## Integrity requirements
 
 - No look-ahead data.
-- No price/volume imputation.
+- No fabricated pre-listing history.
+- Forward-fill is allowed only after first genuine observation in the canonical price matrix.
+- Unavailable long horizons remain missing and do not become neutral zeros.
+- Available momentum weights are renormalized per stock/date.
 - Deterministic calculations for identical input/configuration.
 - Explicit insufficient-history behaviour.
 - Symbol alignment preserved.
-- Division by zero produces missing values, never fabricated numbers.
+- Division by zero produces missing values.
 - Heavy calculations run in the offline metric build, never during API filtering/sorting.
