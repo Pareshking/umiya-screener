@@ -40,14 +40,16 @@ jobs:
       - name: Find latest dataset
         id: dataset
         shell: bash
-        run: echo "path=$(python - <<'PY' >> "$GITHUB_OUTPUT"
-from pathlib import Path
-import json
-root=Path('data_cache/price_history')
-name=json.loads((root/'LATEST.json').read_text())['dataset']
-print(root/name)
-PY
-)"
+        run: |
+          DATASET_PATH="$(python - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path('data_cache/price_history')
+          name=json.loads((root/'LATEST.json').read_text())['dataset']
+          print(root/name)
+          PY
+          )"
+          echo "path=$DATASET_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Publish immutable dataset to R2
         env:
