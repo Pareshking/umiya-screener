@@ -38,23 +38,27 @@ Stores immutable dataset versions and a small latest-version pointer. The API re
 
 ## Required secrets
 
-GitHub Actions requires:
+The current production workflow uses these GitHub Actions secrets:
 
-- `R2_ACCOUNT_ID`
-- `R2_ACCESS_KEY_ID`
-- `R2_SECRET_ACCESS_KEY`
-- `R2_BUCKET`
+- `S3_ENDPOINT_URL`
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
+- `S3_BUCKET`
+
+These are S3-compatible names because Cloudflare R2 is accessed through its S3 API. The API service uses the same `S3_*` environment variables, plus optional `S3_REGION=auto`.
 
 No credentials belong in the repository or frontend.
 
 ## Publication safety
 
-The refresh workflow must follow:
+The refresh workflow follows:
 
 ```text
 Download
   ↓
-Build
+Build canonical price dataset
+  ↓
+Build screener metrics
   ↓
 Validate
   ↓
@@ -63,13 +67,13 @@ Upload immutable version
 Publish latest pointer
 ```
 
-If any step before publication fails, the existing latest pointer remains untouched.
+The immutable dataset is uploaded before its latest pointer is advanced. If validation or an earlier publication step fails, the existing latest pointer remains untouched.
 
 The API therefore continues serving the last known-good dataset.
 
 ## Data schedule
 
-The default workflow runs Monday-Friday at 19:00 IST (13:30 UTC). It can be manually dispatched for recovery/testing.
+The current workflow runs Monday-Friday at 19:00 IST (13:30 UTC). It can also be manually dispatched for recovery/testing.
 
 The schedule is intentionally after the Indian market session. A failed run should not cause a destructive update.
 
@@ -83,18 +87,31 @@ If traffic or dataset/query requirements outgrow the free architecture, measure 
 
 ## Production checklist
 
-- [ ] Vercel project connected to `frontend/`
-- [ ] `NEXT_PUBLIC_API_URL` points to production API
-- [ ] FastAPI service deployed from `render.yaml` or equivalent
-- [ ] Durable R2 bucket created
-- [ ] Four GitHub Actions R2 secrets configured
-- [ ] Scheduled refresh run succeeds
-- [ ] Immutable dataset appears in R2
-- [ ] Latest pointer advances only after validation
-- [ ] API can read the latest pointer
-- [ ] API continues serving the previous version after a failed refresh
-- [ ] CORS restricted to production frontend origin
-- [ ] Health endpoint publicly reachable
-- [ ] Live screener query succeeds
-- [ ] Mobile and desktop smoke tests pass
-- [ ] Real response-time benchmark recorded
+### Verified
+
+- [x] Vercel production deployment exists and latest deployment completed successfully
+- [x] FastAPI production service is configured through `render.yaml`
+- [x] Durable R2 publication path is implemented
+- [x] GitHub Actions R2 credentials are configured (confirmed by successful publication run)
+- [x] Manual scheduled refresh run succeeds
+- [x] Canonical dataset build succeeds
+- [x] Screener metric build succeeds
+- [x] Generated datasets pass the refresh validation step
+- [x] Immutable datasets are published to R2
+- [x] Latest dataset pointers are advanced after successful validation/publication
+- [x] Live screener query has been verified from the deployed application
+
+### Still to verify
+
+- [ ] `NEXT_PUBLIC_API_URL` points to the intended production API and is documented
+- [ ] API can read the current R2 pointers from a fresh instance
+- [ ] API continues serving the previous version after a deliberately failed refresh
+- [ ] CORS is restricted to the production frontend origin
+- [ ] Health endpoint publicly reachable and reports the expected dataset state
+- [ ] Stock-detail endpoint and deep links work in production
+- [ ] Chart endpoint works from a fresh API instance
+- [ ] CSV export works in production
+- [ ] Mobile smoke test on a real device
+- [ ] Desktop smoke test
+- [ ] Real p50/p95 response-time benchmark recorded
+- [ ] Stale-data and unavailable-data UI states verified
