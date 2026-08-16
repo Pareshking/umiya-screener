@@ -2,7 +2,7 @@
 
 A clean, performance-first rebuild of the Umiya NSE quantitative screener.
 
-> **Current status: Phase 0–7 complete. Phase 8 is active.**
+> **Current status: Phase 0–8 complete.**
 
 The old `Pareshking/Umiya` repository is **reference-only and must never be modified**. It is used for quantitative methodology, validated formulas, research requirements and product behaviour—not as an architectural template.
 
@@ -112,22 +112,15 @@ Never commit these values.
 | 5 | Production deployment / R2 / CI / hardening | ✅ Complete |
 | 6 | Production measurement, correctness and performance | ✅ Complete |
 | 7 | Production operational hardening | ✅ Complete |
-| 8 | Production Screener evolution / edge-case audit | **ACTIVE** |
+| 8 | Production Screener evolution / edge-case audit | ✅ Complete |
 
-## Phase 8
+## Phase 8 closure
 
-Phase 8 is **not a redesign**. First audit the deployed Screener for concrete UX, correctness, resilience and API issues, then fix evidence-backed defects.
+Phase 8 completed the evidence-backed production Screener audit without redesigning the architecture or changing quantitative methodology. It fixed frontend race/error-state issues, strengthened query contracts and edge-case handling, added R2 pointer validation, added repeated-refresh and constituent-replacement regression coverage, measured production payloads/latency, and synchronized release documentation.
 
-Planned work:
+Latest production smoke evidence includes five query samples at p50 120 ms / p95 247 ms, representative payload measurements, and explicit HTTP 400 checks for invalid filter/sort contracts.
 
-- **8A:** production desktop/mobile UX audit
-- **8B:** correctness and edge-case audit
-- **8C:** data pipeline resilience review
-- **8D:** API quality and contract review
-- **8E:** evidence-based performance/frontend polish
-- **8F:** documentation and release discipline
-
-Start with **8A + 8B together**. Do not add unrelated features until the audit identifies a concrete need.
+The only remaining observation outside repository automation is an independent human visual walkthrough on a real desktop/mobile browser/device; this is deliberately not represented as completed automated evidence.
 
 ## Working rules
 
@@ -147,7 +140,7 @@ Start with **8A + 8B together**. Do not add unrelated features until the audit i
 - `docs/PROJECT_CONTEXT.md` — current project context and guardrails
 - `docs/ARCHITECTURE.md` — system boundaries and data flow
 - `docs/PHASE_STATUS.md` — current phase state
-- `docs/NEXT_AUDIT.md` — Phase 8 work plan
+- `docs/NEXT_AUDIT.md` — Phase 8 closure record
 - `docs/DATA_CONTRACT.md` — canonical data and freshness rules
 - `docs/OPERATIONS_RUNBOOK.md` — deployment, refresh, recovery and secrets
 - `docs/VALIDATION.md` — test strategy and production audit
@@ -155,4 +148,6 @@ Start with **8A + 8B together**. Do not add unrelated features until the audit i
 - `docs/PHASE5_STATUS.md` — Phase 5 closure record
 - `docs/PHASE6_STATUS.md` — Phase 6 benchmark/acceptance record
 - `docs/PHASE7_STATUS.md` — Phase 7 acceptance record
+- `docs/PHASE8_AUDIT.md` — Phase 8 findings and fixes
+- `docs/PHASE8_PLAN.md` — Phase 8 closure plan
 - `docs/HANDOVER_PROMPT.md` — continuation prompt for future AI sessions
