@@ -1,4 +1,5 @@
 import "./globals.css";
+import "./screener-compact.css";
 
 export const metadata = { title: "Umiya Screener", description: "NSE quantitative momentum screener" };
 
