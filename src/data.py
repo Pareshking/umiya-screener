@@ -8,24 +8,58 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-from .config import HTTP_HEADERS, NIFTY_TOTAL_MARKET_LOCAL, NIFTY_TOTAL_MARKET_URL
+from .config import HTTP_HEADERS, INDEX_LOCAL_PATHS, INDEX_URLS
 
 
-def load_universe(local_path: Path = NIFTY_TOTAL_MARKET_LOCAL) -> pd.DataFrame:
-    """Load the NSE Total Market constituent list, preferring live NSE Indices data."""
-    try:
-        response = requests.get(NIFTY_TOTAL_MARKET_URL, headers=HTTP_HEADERS, timeout=20)
-        response.raise_for_status()
-        if len(response.content) > 200:
+def load_universe() -> pd.DataFrame:
+    """Load the intended NSE 750 universe from the five official index files.
+
+    The source sets are Nifty 50, Nifty Next 50, Nifty Midcap 150,
+    Nifty Smallcap 250 and Nifty Microcap 250. They are concatenated and
+    de-duplicated by Symbol while preserving the source index as a column.
+    """
+    frames: list[pd.DataFrame] = []
+    errors: list[str] = []
+
+    for index_name, url in INDEX_URLS.items():
+        local_path = INDEX_LOCAL_PATHS[index_name]
+        try:
+            response = requests.get(url, headers=HTTP_HEADERS, timeout=20)
+            response.raise_for_status()
+            if len(response.content) <= 200:
+                raise ValueError("response was unexpectedly small")
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_bytes(response.content)
-            return _parse_universe(response.content)
-    except requests.RequestException:
-        pass
+            frame = _parse_universe(response.content)
+        except (requests.RequestException, ValueError, pd.errors.ParserError) as exc:
+            if local_path.exists():
+                try:
+                    frame = _parse_universe(local_path.read_bytes())
+                except Exception as local_exc:
+                    errors.append(f"{index_name}: {local_exc}")
+                    continue
+            else:
+                errors.append(f"{index_name}: {exc}")
+                continue
 
-    if local_path.exists():
-        return _parse_universe(local_path.read_bytes())
-    raise FileNotFoundError("NIFTY Total Market constituent file is unavailable")
+        frame["Index"] = index_name
+        frames.append(frame)
+
+    if not frames:
+        raise FileNotFoundError("No NSE 750 constituent files are available")
+
+    universe = pd.concat(frames, ignore_index=True)
+    # The five official source sets should be disjoint. If NSE data ever
+    # contains an overlap, keep the first occurrence and make the issue visible.
+    universe = universe.drop_duplicates("Symbol", keep="first").reset_index(drop=True)
+
+    if len(universe) < 700:
+        detail = f" Parsed {len(universe)} symbols."
+        if errors:
+            detail += " " + "; ".join(errors)
+        raise ValueError("NSE 750 universe is unexpectedly incomplete." + detail)
+
+    return universe
 
 
 def _parse_universe(raw: bytes) -> pd.DataFrame:
