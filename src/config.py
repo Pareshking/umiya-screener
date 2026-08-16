@@ -38,11 +38,10 @@ EXPECTED_INDEX_COUNTS = {
     "NIFTY MICROCAP 250": 250,
 }
 
-# Protect the pipeline from publishing a catastrophically incomplete NSE
-# constituent file while still allowing legitimate count changes above this
-# floor. A source returning less than 80% of its normal size is treated as a
-# structural/source failure rather than a normal reconstitution.
+# Protect the pipeline from catastrophically incomplete constituent files while
+# still allowing legitimate count changes above this floor.
 INDEX_COUNT_MIN_RATIO = 0.80
+UNIVERSE_MIN_RATIO = 0.80
 
 INDEX_LOCAL_PATHS = {
     name: DATA_DIR / "indices" / f"{name.lower().replace(' ', '_')}.csv"
