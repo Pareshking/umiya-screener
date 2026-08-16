@@ -9,18 +9,30 @@ Next.js frontend
       ↓ JSON/HTTP
 FastAPI API
       ↓
-Cached screener metric store
+Persistent + in-memory metric cache
       ↓
 Python quantitative engine + data loaders
       ↓
-NSE / Yahoo Finance
+Official NSE index constituents + Yahoo Finance OHLCV
 ```
 
-The expensive market-wide calculation is performed once per backend refresh and retained in memory. Normal filter, sort and pagination requests operate on the prepared metric table instead of rerunning the complete application.
+The expensive market-wide calculation is performed only when the metric cache is missing/stale or an explicit refresh is requested. Normal filter, sort and pagination requests operate on the prepared metric table instead of rerunning the complete application.
+
+## Canonical NSE 750 universe
+
+The screener uses the five official NSE Indices constituent files supplied for this project:
+
+- Nifty 50 — 50
+- Nifty Next 50 — 50
+- Nifty Midcap 150 — 150
+- Nifty Smallcap 250 — 250
+- Nifty Microcap 250 — 250
+
+The sources are stored separately and combined with an `Index` membership column. Symbols are de-duplicated rather than blindly truncating the resulting table to 750. Source-count diagnostics are exposed by `/api/v1/screener/metadata`.
 
 ## Current scope
 
-- NSE Total Market / deterministic NSE-750 working universe
+- Canonical NSE 750 working universe
 - Daily OHLCV data
 - 1M / 3M / 6M / 9M / 12M momentum windows
 - Risk-adjusted momentum and cross-sectional score
@@ -31,7 +43,9 @@ The expensive market-wide calculation is performed once per backend refresh and 
 - Momentum acceleration
 - Industry-relative momentum
 - ATR, persistence and volume diagnostics
+- Index / industry filtering
 - Fast API-side filtering, sorting and pagination
+- Persistent Parquet metric cache
 - Responsive desktop table + mobile stock cards
 
 ## Local development
