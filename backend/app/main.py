@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 from pathlib import Path
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import ScreenerQuery
@@ -12,7 +14,7 @@ from .service import FILTERABLE, MetricsCacheStale, MetricsCacheUnavailable, que
 
 ROOT = Path(__file__).resolve().parents[2]
 PRICE_ROOT = ROOT / "data_cache" / "price_history"
-app = FastAPI(title="Umiya Screener API", version="0.3.1")
+app = FastAPI(title="Umiya Screener API", version="0.3.2")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["*"])
 
 def _cache_error(exc: Exception) -> HTTPException:
@@ -47,6 +49,26 @@ def screener(payload: ScreenerQuery) -> dict:
     try: return query(payload)
     except (MetricsCacheUnavailable, MetricsCacheStale) as exc: raise _cache_error(exc) from exc
     except Exception as exc: raise HTTPException(status_code=500, detail="Screener query failed") from exc
+
+@app.post("/api/v1/screener/export")
+def screener_export(payload: ScreenerQuery) -> Response:
+    try:
+        first = query(payload.model_copy(update={"page": 1, "page_size": 200}))
+        rows = list(first.get("rows", []))
+        for page in range(2, int(first.get("pages", 1)) + 1):
+            rows.extend(query(payload.model_copy(update={"page": page, "page_size": 200})).get("rows", []))
+    except (MetricsCacheUnavailable, MetricsCacheStale) as exc:
+        raise _cache_error(exc) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Screener export failed") from exc
+    output = io.StringIO(newline="")
+    if rows:
+        fields = list(rows[0].keys())
+        writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader(); writer.writerows(rows)
+    else:
+        output.write("No matching stocks\n")
+    return Response(content=output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=umiya-screener.csv"})
 
 @app.get("/api/v1/stocks/{symbol}")
 def stock(symbol: str) -> dict:
