@@ -157,14 +157,13 @@ jobs:
               raise RuntimeError("Unexpectedly sparse momentum scores")
           print(f"Phase 2 real-data metric build passed: {len(frame)} stocks, built_at={built_at.isoformat()}")
           PY
-      - name: Verify R2 is absent from runtime source
+      - name: Verify R2 is absent from runtime and test source
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           set -e
-          if git grep -n -i -E '(^|[^A-Za-z])R²([^A-Za-z]|$)|R2 1Y|rolling_r2|Sharpe × R2|Sharpe × R²' -- \
-            ':!docs/PRODUCTION_STORAGE.md' ':!docs/OPERATIONS_RUNBOOK.md'; then
-            echo "R2 residue found in source/documentation contract"
+          if git grep -n -i -E '(^|[^A-Za-z])R²([^A-Za-z]|$)|R2 1Y|rolling_r2|Sharpe × R2|Sharpe × R²' -- src backend tests frontend; then
+            echo "R2 residue found in runtime/test source"
             exit 1
           fi
       - name: Upload Yahoo data test artifact
