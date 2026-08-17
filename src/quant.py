@@ -61,32 +61,6 @@ def returns(close: pd.DataFrame, windows: Sequence[int] = MOMENTUM_WINDOWS) -> p
     return out
 
 
-def rolling_r2(prices: pd.DataFrame, window: int = 252) -> pd.DataFrame:
-    """Vectorized R² of log-price versus a linear time trend."""
-    prices = clean_prices(prices)
-    logp = np.log(prices.where(prices > 0))
-    n = len(logp)
-    if n < window:
-        return pd.DataFrame(np.nan, index=prices.index, columns=prices.columns, dtype=float)
-
-    t = pd.Series(np.arange(n, dtype=float), index=prices.index)
-    sum_t = float(window * (window - 1) / 2.0)
-    sum_t2 = float(window * (window - 1) * (2 * window - 1) / 6.0)
-    var_t = sum_t2 - (sum_t * sum_t / window)
-    if var_t <= 0:
-        return pd.DataFrame(np.nan, index=prices.index, columns=prices.columns, dtype=float)
-
-    valid = logp.notna().rolling(window, min_periods=window).sum().eq(window)
-    sum_y = logp.rolling(window, min_periods=window).sum()
-    sum_y2 = (logp * logp).rolling(window, min_periods=window).sum()
-    sum_ty = logp.mul(t, axis=0).rolling(window, min_periods=window).sum()
-
-    cov_num = sum_ty - (sum_t * sum_y / window)
-    var_y = (sum_y2 - (sum_y * sum_y / window)).clip(lower=0)
-    r2 = (cov_num * cov_num) / (var_t * var_y.replace(0, np.nan))
-    return r2.where(valid).clip(0, 1)
-
-
 def sharpe(close: pd.DataFrame, window: int) -> pd.DataFrame:
     """Cumulative log return divided by same-window daily-log-return SD, scaled by sqrt(window)."""
     close = clean_prices(close)
@@ -107,9 +81,9 @@ def momentum_score(
     windows: Sequence[int] = MOMENTUM_WINDOWS,
     weights: Sequence[float] = MOMENTUM_WEIGHTS,
 ) -> pd.DataFrame:
-    """Weighted cross-sectional Z-score of Sharpe × R² across available lookbacks.
+    """Weighted cross-sectional Z-score of pure Sharpe across available lookbacks.
 
-    Each R²/Sharpe component uses its own matching window. If a stock does not
+    Each Sharpe component uses its own matching window. If a stock does not
     yet have enough history for a longer horizon, that component is omitted
     and the remaining weights are renormalized for that stock. This avoids
     penalizing newer stocks solely for lacking 9M/12M history while retaining
@@ -126,11 +100,9 @@ def momentum_score(
 
     for window, weight in zip(windows, weights):
         risk = sharpe(prices, window)
-        quality = rolling_r2(prices, window)
-        raw = risk * quality
-        raw.loc[:, valid_counts < window + 1] = np.nan
+        risk.loc[:, valid_counts < window + 1] = np.nan
 
-        z = _cross_sectional_z(raw)
+        z = _cross_sectional_z(risk)
         available = z.notna().astype(float)
         result = result.add(z.fillna(0) * weight, fill_value=0)
         weight_available = weight_available.add(available * weight, fill_value=0)
