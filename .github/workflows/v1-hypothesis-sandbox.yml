@@ -1,0 +1,37 @@
+name: V1 Hypothesis Sandbox
+
+on:
+  workflow_dispatch:
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sandbox branch
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Build isolated 10-year research dataset
+        run: python scripts/build_data.py
+
+      - name: Run V1 hypothesis backtest
+        run: python research/v1_hypothesis_backtest.py | tee v1_hypothesis_summary.txt
+
+      - name: Upload research results
+        uses: actions/upload-artifact@v4
+        with:
+          name: v1-hypothesis-results
+          path: |
+            research/outputs/v1_hypothesis_summary.csv
+            research/outputs/v1_hypothesis_detail.csv
+            v1_hypothesis_summary.txt
+          retention-days: 14
