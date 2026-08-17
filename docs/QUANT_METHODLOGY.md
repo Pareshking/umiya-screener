@@ -55,19 +55,11 @@ For lookback `N`:
 
 This produces the V2 `Sharpe` diagnostic. It is a defined screening score, not a claim of a textbook annualized portfolio Sharpe ratio.
 
-## Trend quality — R²
-
-For each lookback, regress log Adjusted Close against a linear time index over the full requested window. `R²` is the square of the correlation between log price and time.
-
-R² is unavailable when the complete requested window is unavailable.
-
 ## Momentum score
 
-For each lookback in 1M/3M/6M/9M/12M:
+For each lookback in 1M/3M/6M/9M/12M, use the corresponding **Sharpe** value directly.
 
-`raw = Sharpe × R²`
-
-The raw cross-section is Z-scored on each market date and clipped to ±3. Configured weights are:
+The cross-section is Z-scored on each market date and clipped to ±3. Configured weights are:
 
 | Lookback | Weight |
 |---|---:|
@@ -103,7 +95,7 @@ Volume is never imputed.
 
 ## Deliberately excluded in V2
 
-ATR, true range, Chandelier Exit and other metrics requiring High/Low are not calculated because High/Low are not part of the canonical data contract. Adding those metrics requires an explicit data-contract change.
+R² is not calculated or exposed in V2. ATR, true range, Chandelier Exit and other metrics requiring High/Low are also not calculated because High/Low are not part of the canonical data contract. Adding those metrics requires an explicit data-contract change.
 
 ## Integrity requirements
 
