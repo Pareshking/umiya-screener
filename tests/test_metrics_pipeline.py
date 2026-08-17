@@ -36,11 +36,12 @@ def test_build_metric_frame_composes_complete_screener_contract(monkeypatch):
     required = {
         "Symbol", "Company Name", "Industry", "Index", "Momentum Score", "Rank",
         "1M Return", "3M Return", "6M Return", "9M Return", "12M Return",
-        "3M Sharpe", "6M Sharpe", "R² 1Y", "Industry Relative", "Acceleration",
+        "3M Sharpe", "6M Sharpe", "Industry Relative", "Acceleration",
         "EMA 50", "EMA 100", "EMA 200", "52W High", "Volume Ratio",
         "Persistence 6M %", "Data Age Days", "Last Volume Date", "Volume Age Days", "Market As Of",
     }
     assert required.issubset(frame.columns)
+    assert not {"R² 1Y", "R2 1Y", "R2"}.intersection(frame.columns)
     assert frame["Rank"].notna().all()
     assert frame["Symbol"].is_unique
     assert built_at.tzinfo is not None
