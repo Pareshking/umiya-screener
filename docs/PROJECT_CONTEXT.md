@@ -19,9 +19,9 @@ The active product scope is **Screener + individual stock research page**. Other
 
 ## Current state
 
-Phases 0–9 are complete. Phase 10 is complete in source on `main`.
+Phases 0–9 are complete. Phase 10 source is complete, with the current R² removal update now under validation before production release.
 
-The production data pipeline, R2 publication, Render API and Vercel architecture remain unchanged. The Phase 10 work is UI/UX only plus documentation/test coverage where required.
+The production data pipeline, R2 publication, Render API and Vercel architecture remain unchanged except for the prepared metrics contract: R² is no longer calculated or exposed. This update does not redesign the architecture or data publication path.
 
 ## Architecture
 
@@ -61,11 +61,11 @@ Primary windows:
 - 9M: 189
 - 12M: 252
 
-Each Sharpe/R² component requires its matching full window. When a longer window is unavailable, that component remains missing and the configured momentum weights are renormalized over the components available for that stock/date.
+Each Sharpe component requires its matching full window. When a longer window is unavailable, that component remains missing and the configured momentum weights are renormalized over the components available for that stock/date.
 
 Primary screener eligibility remains 126 genuine observations.
 
-V2 uses Adjusted Close. No quantitative methodology was changed during Phase 10.
+V2 uses Adjusted Close. R² is deliberately removed from the momentum score and stock-research output; the momentum score is based on the weighted cross-sectional Z-score of Sharpe across the five lookbacks.
 
 ## Phase 10 result
 
@@ -98,4 +98,4 @@ The final UI is intentionally table-first and compact:
 
 ## Final state
 
-Phase 10 engineering work is complete. The existing Vercel Git integration is the deployment path for `main`; the repository CI/deployment status is the authoritative automated gate.
+Phase 10 UI engineering is complete. The current R²-removal change is a quantitative-contract maintenance loop on `main`; it must pass the existing Python, frontend and production validation gates before being treated as production-ready.
