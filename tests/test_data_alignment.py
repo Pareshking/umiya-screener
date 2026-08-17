@@ -12,15 +12,15 @@ def test_clean_prices_never_fills_before_first_real_observation():
     assert cleaned.iloc[2:, 0].tolist() == [100.0, 100.0, 102.0, 102.0, 104.0, 105.0]
 
 
-def test_returns_use_genuine_observation_order_not_calendar_rows():
-    idx = pd.bdate_range("2026-01-01", periods=6)
-    close = pd.DataFrame({"A": [100.0, 101.0, np.nan, 103.0, 104.0, 105.0]}, index=idx)
-    out = returns(close, windows=(2,))
-    # After cleaning, the last two observations are 104 -> 105.
-    assert np.isclose(out.loc["A", "1M Return"], (105.0 / 103.0 - 1) * 100) is False
-    # The function's observation convention uses the value two observations
-    # before the latest: 103 -> 105.
-    assert np.isclose(out.loc["A", "1M Return"], (105.0 / 103.0 - 1) * 100)
+def test_returns_use_trading_observation_order_after_cleaning():
+    idx = pd.bdate_range("2026-01-01", periods=260)
+    values = np.arange(260, dtype=float) + 100.0
+    values[100] = np.nan
+    close = pd.DataFrame({"A": values}, index=idx)
+    out = returns(close)
+    cleaned = clean_prices(close)
+    expected = (cleaned["A"].iloc[-1] / cleaned["A"].iloc[-64] - 1) * 100
+    assert np.isclose(out.loc["A", "3M Return"], expected)
 
 
 def test_pre_listing_history_does_not_create_eligibility_or_momentum():
@@ -32,4 +32,4 @@ def test_pre_listing_history_does_not_create_eligibility_or_momentum():
     }, index=idx)
     score = momentum_score(close)
     assert score["NEW"].isna().all()
-    assert score["OLD"].iloc[-1] == score["OLD"].iloc[-1]
+    assert np.isfinite(score["OLD"].iloc[-1])
