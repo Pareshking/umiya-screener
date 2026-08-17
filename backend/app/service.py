@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from src.config import METRICS_CACHE_PATH, METRICS_CACHE_TTL_HOURS
-from src.quant import industry_relative, momentum_acceleration, momentum_score, rolling_r2, sharpe, technical_snapshot
+from src.quant import industry_relative, momentum_acceleration, momentum_score, sharpe, technical_snapshot
 from src.storage import ObjectStoreConfig, download_prefix, read_pointer
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,7 +64,6 @@ def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
     )
     frame["Industry Relative"] = industry_relative(frame["Momentum Score"], universe)
     frame["Rank"] = frame["Momentum Score"].rank(ascending=False, method="min", na_option="bottom").astype("Int64")
-    frame["R² 1Y"] = rolling_r2(close, 252).iloc[-1].reindex(frame.index)
     frame["3M Sharpe"] = sharpe(close, 63).iloc[-1].reindex(frame.index)
     frame["6M Sharpe"] = sharpe(close, 126).iloc[-1].reindex(frame.index)
     frame["Market As Of"] = pd.Timestamp(metadata["market_as_of"])
@@ -207,8 +206,8 @@ class ScreenerStore:
 
 store = ScreenerStore()
 
-FILTERABLE = ["Rank", "Index", "Symbol", "CMP", "Momentum Score", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "R² 1Y", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Industry", "Within 20% of 52W High", "Data Age Days"]
-SORTABLE = ["Rank", "Symbol", "Company Name", "Industry", "Index", "CMP", "Momentum Score", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "R² 1Y", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Data Age Days"]
+FILTERABLE = ["Rank", "Index", "Symbol", "CMP", "Momentum Score", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Industry", "Within 20% of 52W High", "Data Age Days"]
+SORTABLE = ["Rank", "Symbol", "Company Name", "Industry", "Index", "CMP", "Momentum Score", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Data Age Days"]
 _ALLOWED_OPERATORS = {">", ">=", "<", "<=", "=", "in"}
 
 
