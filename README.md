@@ -2,7 +2,7 @@
 
 A performance-first, API-driven NSE quantitative momentum screener and stock research interface.
 
-> **Current status: Phases 0–10 complete; production-ready source is on `main`.**
+> **Current status: Phases 0–10 complete; current R²-removal maintenance update is under validation on `main`.**
 
 ## Production
 
@@ -33,7 +33,7 @@ Umiya V2 is intentionally a modern web research product rather than a Streamlit 
 - compact stock identity and signal header;
 - adjusted-close price chart with range selector and pointer inspection;
 - Momentum section with 1M/3M/6M/9M/12M returns and acceleration;
-- Risk & Trend section with Sharpe, R², 52W proximity, EMA 200 and volume ratio;
+- Risk & Trend section with Sharpe, 52W proximity, EMA 200 and volume ratio;
 - Relative & Data Context section with industry-relative strength, persistence and provenance;
 - responsive desktop/tablet/mobile layout;
 - duplicate metric representations removed.
@@ -72,7 +72,7 @@ Production market data is:
 
 For the canonical V2 price matrix, missing observations are forward-filled only after each stock's first genuine observation. Values before first observation are never fabricated.
 
-Momentum windows are 21/63/126/189/252 trading days. A missing longer window remains unavailable; available component weights are renormalized rather than assigning an artificial zero.
+Momentum windows are 21/63/126/189/252 trading days. A missing longer window remains unavailable; available component weights are renormalized rather than assigning an artificial zero. Momentum score uses the weighted cross-sectional Z-score of Sharpe; R² is not calculated or exposed.
 
 ATR and other High/Low-dependent metrics are deliberately excluded because OHLC is outside the current data contract.
 
@@ -123,7 +123,7 @@ Production R2 lifecycle/retention was manually verified on 2026-08-16:
 - Do not download market data in response to UI filters/search.
 - Do not use ephemeral API-local storage as the production source of truth.
 - Do not display invented/demo market data in production.
-- Preserve the validated quantitative methodology.
+- Preserve the validated quantitative methodology except for this explicit R² removal.
 - Keep pipeline, quant engine, API and frontend independently testable.
 - Update implementation, tests and documentation together for contract changes.
 
