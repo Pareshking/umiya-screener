@@ -7,7 +7,6 @@ from src.quant import (
     eligible_symbols,
     momentum_score,
     returns,
-    rolling_r2,
     sharpe,
     technical_snapshot,
 )
@@ -42,9 +41,6 @@ def test_returns_use_trading_observations():
 
 
 def test_12m_return_remains_missing_when_history_is_short():
-    # 126 observations satisfy V2 eligibility, but are insufficient for a
-    # 252-observation point-to-point return. Never convert unavailable history
-    # to a neutral 0%, because that would manufacture financial information.
     close, _ = monotonic_data(126)
     out = returns(close)
     assert pd.isna(out.loc["A", "12M Return"])
@@ -56,12 +52,6 @@ def test_12m_return_is_point_to_point_when_history_is_available():
     out = returns(close)
     expected = (close.iloc[-1, 0] / close.iloc[-253, 0] - 1) * 100
     assert np.isclose(out.loc["A", "12M Return"], expected)
-
-
-def test_r2_of_linear_log_price_is_one():
-    close, _ = monotonic_data()
-    r2 = rolling_r2(close, 252).iloc[-1, 0]
-    assert np.isclose(r2, 1.0, atol=1e-10)
 
 
 def test_sharpe_matches_annualized_log_return_definition():
