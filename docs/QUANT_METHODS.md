@@ -12,46 +12,61 @@ Phase 2 is the analytical contract between the canonical Phase 1 dataset and the
 
 No metric is allowed to fetch market data or rebuild the dataset at query time.
 
+Dates on which more than 70% of the universe has no observation are dropped before any metric is computed: those rows are market holidays that leaked into the vendor's date grid, and keeping them drags every cross-sectional statistic on that date towards the handful of symbols that did print.
+
 ## Lookbacks
 
-| Label | Days | Weight |
+Horizons are **calendar periods, not fixed trading-row counts**.
+
+| Label | Calendar period | Weight |
 |---|---:|---:|
-| 1M | 21 | 10% |
-| 3M | 63 | 30% |
-| 6M | 126 | 30% |
-| 9M | 189 | 20% |
-| 12M | 252 | 10% |
+| 1M | 1 month | 10% |
+| 3M | 3 months | 30% |
+| 6M | 6 months | 30% |
+| 9M | 9 months | 20% |
+| 12M | 12 months | 10% |
+
+Earlier versions read "1M" as the last 21 rows and "12M" as the last 252 rows. NSE trades a variable number of sessions per month, and every holed session shifts a row-counted window a day further back, so a "12M return" could silently span 11 or 13 months depending on how complete the vendor data happened to be. The window is now defined by dates:
+
+- The **as-of date** is today's India date for genuinely current data, or the dataset's last observation when the dataset is more than 7 days stale. A stale or offline dataset therefore cannot acquire a synthetic multi-year lookback.
+- The **target start** is `as_of - DateOffset(months=N)`.
+- The window **opens on the first available market date on or after the target**.
+- If that opening observation is more than 7 calendar days after the target, the dataset does not reach back that far and the horizon stays unavailable. A 12M label is never attached to a shorter window.
+
+The opening price may be carried forward by at most 5 sessions (one trading week) to bridge holes the vendor leaves. A stock with no print for longer than that scores unavailable rather than anchoring on a stale price.
+
+See `src/calendar_momentum.py`.
 
 ## Returns
 
-`ROC_w = (P_t / P_(t-w) - 1) * 100` using each symbol's own valid observations.
+`ROC_N = (P_end / P_start - 1) * 100`, where `P_start` is the observation the calendar window opens on and `P_end` is the latest observation.
 
-No forward-fill or interpolation is performed. If a symbol has insufficient observations for a lookback, that lookback remains unavailable. Per the V2 decision, **12M ROC is explicitly 0 when unavailable**; this does not fabricate a price observation.
+Nothing is interpolated, and no value is fabricated when a horizon is unreachable: an unavailable lookback is reported as missing, not as zero.
 
 ## Risk-adjusted momentum / Sharpe
 
-For window `w`:
+For a calendar window of `N` months spanning `n` observations:
 
 1. `daily_log_return = ln(P_t / P_(t-1))`
-2. `cumulative_log_return = ln(P_t / P_(t-w))`
-3. `annualized_volatility = rolling_std(daily_log_return, w) * sqrt(w)`
-4. `risk_adjusted_return = cumulative_log_return / annualized_volatility`
-5. Momentum quality = `risk_adjusted_return * R²`
+2. `cumulative_log_return = ln(P_end / P_start)`
+3. `period_volatility = population_std(daily_log_return over the window) * sqrt(n)`
+4. `risk_adjusted_return = cumulative_log_return / period_volatility`
 
-`R²` is the squared Pearson correlation between log price and a linear time index over the same window.
+Only the economic horizon and the observation count `n` are calendar-defined; the period-scale volatility math is unchanged from the legacy engine. It is intentionally not replaced by a textbook risk-free-rate Sharpe implementation.
 
-This is the methodology used by the legacy Umiya momentum engine and is retained for V2 parity. It is intentionally not replaced by a textbook risk-free-rate Sharpe implementation.
+R² (the squared correlation between log price and a time index) was previously multiplied into this score. It has been removed: it is not part of the current contract and must not be reintroduced without an explicit decision.
 
 ## Composite momentum score
 
 For each lookback:
 
-- calculate `risk_adjusted_return * R²`
-- cross-sectionally standardize across the universe
-- clip the resulting Z-score to `[-3, +3]`
+- calculate `risk_adjusted_return` over the calendar window
+- **winsorise** the date's cross-section at ±3σ, then cross-sectionally standardize it, then clamp the result to `[-3, +3]`
 - combine using the weights above
 
-Stocks with less than 126 valid observations are ineligible. Missing long-window components are not imputed with prices; the composite treats an unavailable component as zero contribution, while the explicit 12M ROC display fallback remains zero.
+Winsorising before standardizing keeps a single extreme name from stretching the mean and standard deviation that every other name is scored against. A cross-section needs at least 3 real observations and non-zero spread to be scored at all; below that the date is unavailable.
+
+Stocks with less than 126 valid observations are ineligible. Components a stock cannot yet support are **omitted and the remaining weights renormalized for that stock**, so a recent listing is not penalised merely for lacking 9M/12M history.
 
 ## Trend
 
@@ -59,13 +74,15 @@ Calculated from Adjusted Close:
 
 - EMA 50 / 100 / 200
 - `% distance from EMA = (CMP / EMA - 1) * 100`
-- 52-week high = maximum Adjusted Close over the latest 252 observations
+- 52-week high = maximum Adjusted Close over the trailing **12 calendar months**
 - `% from 52W high = CMP / 52W High - 1`
 - `Within 20% of 52W High` when the distance is at least -20%
 
 ## Persistence
 
-`Persistence 6M %` = positive daily log-return observations / valid daily log-return observations over the latest 126 observations × 100.
+`Persistence 6M %` = positive daily log-return observations / valid daily log-return observations over the trailing **6 calendar months** × 100.
+
+This is the frog-in-the-pan measure: how steadily a move was delivered, rather than how large it was.
 
 ## Volume
 
