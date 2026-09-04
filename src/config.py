@@ -9,7 +9,9 @@ CACHE_DIR.mkdir(exist_ok=True)
 METRICS_CACHE_PATH = CACHE_DIR / "screener_metrics.parquet"
 METRICS_CACHE_TTL_HOURS = 24
 
-MOMENTUM_WINDOWS = (21, 63, 126, 189, 252)
+# Momentum horizons are CALENDAR months, not fixed trading-row counts.
+# See src/calendar_momentum.py for why 21/63/126/189/252 rows were wrong.
+MOMENTUM_MONTHS = (1, 3, 6, 9, 12)
 DEFAULT_LOOKBACK_WEIGHTS = (0.10, 0.30, 0.30, 0.20, 0.10)
 BENCHMARK = "^NSEI"
 INDEX_UNIVERSE = "NIFTY 750"

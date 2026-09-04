@@ -10,7 +10,14 @@ import numpy as np
 import pandas as pd
 
 from src.config import METRICS_CACHE_PATH, METRICS_CACHE_TTL_HOURS
-from src.quant import industry_relative, momentum_acceleration, momentum_score, sharpe, technical_snapshot
+from src.quant import (
+    clean_holidays,
+    industry_relative,
+    momentum_acceleration,
+    latest_sharpe,
+    momentum_score,
+    technical_snapshot,
+)
 from src.storage import ObjectStoreConfig, download_prefix, read_pointer
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -54,6 +61,10 @@ def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
     close, volume = close.reindex(columns=symbols), volume.reindex(columns=symbols)
     if close.empty or volume.empty or not symbols:
         raise RuntimeError("Canonical Phase 1 dataset contains no eligible stocks.")
+    # Market holidays that leaked into the vendor date grid distort every
+    # cross-sectional statistic computed on those dates.
+    close = clean_holidays(close)
+    volume = volume.reindex(index=close.index)
     scores = momentum_score(close).iloc[-1].rename("Momentum Score")
     acceleration = momentum_acceleration(close).rename("Acceleration")
     technical = technical_snapshot(close, volume)
@@ -64,8 +75,8 @@ def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
     )
     frame["Industry Relative"] = industry_relative(frame["Momentum Score"], universe)
     frame["Rank"] = frame["Momentum Score"].rank(ascending=False, method="min", na_option="bottom").astype("Int64")
-    frame["3M Sharpe"] = sharpe(close, 63).iloc[-1].reindex(frame.index)
-    frame["6M Sharpe"] = sharpe(close, 126).iloc[-1].reindex(frame.index)
+    frame["3M Sharpe"] = latest_sharpe(close, 3).reindex(frame.index)
+    frame["6M Sharpe"] = latest_sharpe(close, 6).reindex(frame.index)
     frame["Market As Of"] = pd.Timestamp(metadata["market_as_of"])
     frame["Dataset Schema"] = metadata.get("schema_version", "1.2")
     return frame.reset_index(), datetime.now(timezone.utc)

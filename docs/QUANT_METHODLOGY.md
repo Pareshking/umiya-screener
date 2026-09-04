@@ -4,21 +4,31 @@ This document is the calculation contract for the production V2 screener. Metric
 
 ## Lookback convention
 
-Daily observations are counted on the common market-date grid. The canonical V2 price matrix is forward-filled **only after each stock's first genuine observation**; values before first observation are never fabricated.
+Horizons are **calendar periods**, not fixed trading-day counts:
 
-- 1M = 21 trading days
-- 3M = 63
-- 6M = 126
-- 9M = 189
-- 12M = 252
+- 1M = 1 calendar month
+- 3M = 3 calendar months
+- 6M = 6 calendar months
+- 9M = 9 calendar months
+- 12M = 12 calendar months
 
-A metric requiring a full horizon is unavailable when that stock does not have enough genuine history for the requested window.
+For each observation date the window's start target is that date minus the requested number of calendar months, and the window opens on the first available market date on or after that target. NSE trades a variable number of sessions per month, so a fixed 21/63/126/189/252-row window drifts against the calendar and silently changes the economic horizon it reports.
+
+The as-of date is today's India date when the dataset is current, and the dataset's own last observation when it is more than 7 days stale, so an offline dataset cannot acquire a synthetic lookback.
+
+A horizon is unavailable when the dataset does not reach back to its target start (more than 7 calendar days short), or when the stock has no usable price at either end of the window. The window's opening price may be bridged across at most 5 sessions of missing data; beyond that the horizon is missing rather than anchored on a stale price.
+
+The canonical V2 price matrix is gap-bridged **only after each stock's first genuine observation** and only for up to 5 sessions; values before first observation are never fabricated, and a suspended stock is not carried forward indefinitely.
+
+Dates where more than 70% of the universe has no observation are dropped as market holidays before any metric is computed.
+
+See `src/calendar_momentum.py`.
 
 ## Returns
 
-For lookback `N`:
+For a lookback of `N` calendar months:
 
-`(latest valid Adjusted Close / Adjusted Close N observations earlier - 1) × 100`
+`(latest valid Adjusted Close / Adjusted Close at the window's opening market date - 1) × 100`
 
 The latest valid observation is used only after Phase 1 freshness/eligibility validation.
 
@@ -36,7 +46,7 @@ Outputs:
 
 ## 52-week proximity
 
-52-week high = maximum Adjusted Close over the most recent 252 observations.
+52-week high = maximum Adjusted Close over the trailing 12 calendar months.
 
 `% From 52W High = (CMP / 52W High - 1) × 100`
 
@@ -46,12 +56,12 @@ Because the canonical dataset does not contain High prices, this is a **price-ba
 
 ## Risk-adjusted momentum
 
-For lookback `N`:
+For a lookback of `N` calendar months spanning `n` observations:
 
 1. Calculate daily log returns.
-2. Calculate cumulative log return over the same `N`-observation window.
-3. Calculate the raw standard deviation of daily log returns over that same window.
-4. Normalize cumulative log return by the same-window volatility and `sqrt(N)`.
+2. Calculate cumulative log return from the window's opening price to the latest price.
+3. Calculate the population standard deviation of daily log returns over that same window.
+4. Normalize cumulative log return by the same-window volatility scaled by `sqrt(n)`.
 
 This produces the V2 `Sharpe` diagnostic. It is a defined screening score, not a claim of a textbook annualized portfolio Sharpe ratio.
 
@@ -59,7 +69,7 @@ This produces the V2 `Sharpe` diagnostic. It is a defined screening score, not a
 
 For each lookback in 1M/3M/6M/9M/12M, use the corresponding **Sharpe** value directly.
 
-The cross-section is Z-scored on each market date and clipped to ±3. Configured weights are:
+On each market date the cross-section is **winsorised at ±3σ, then Z-scored, then clamped to ±3**. Winsorising first stops a single extreme name from stretching the mean and standard deviation every other name is measured against. A date needs at least 3 real observations and non-zero spread to be scored. Configured weights are:
 
 | Lookback | Weight |
 |---|---:|
@@ -81,7 +91,7 @@ Acceleration compares weighted short-term risk-adjusted momentum with weighted l
 
 ## Persistence
 
-6M persistence = percentage of valid daily log-return observations over the latest 126 observations that are positive.
+6M persistence = percentage of valid daily log-return observations over the trailing 6 calendar months that are positive. This is the frog-in-the-pan measure of how steadily a move was delivered.
 
 ## Volume ratio
 
@@ -101,7 +111,8 @@ R² is not calculated or exposed in V2. ATR, true range, Chandelier Exit and oth
 
 - No look-ahead data.
 - No fabricated pre-listing history.
-- Forward-fill is allowed only after first genuine observation in the canonical price matrix.
+- Forward-fill is allowed only after first genuine observation in the canonical price matrix, and only for up to 5 sessions.
+- Horizons are calendar-defined; a longer label is never attached to a shorter window.
 - Unavailable long horizons remain missing and do not become neutral zeros.
 - Available momentum weights are renormalized per stock/date.
 - Deterministic calculations for identical input/configuration.

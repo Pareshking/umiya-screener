@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.quant import rolling_r2, sharpe  # noqa: E402
+from src.quant import latest_sharpe, period_window, returns  # noqa: E402
 
 SYMBOLS = ["CUPID", "STLTECH", "LAURUSLABS", "ATHERENERG", "RRKABEL"]
 
@@ -33,9 +33,11 @@ def audit_symbol(close: pd.DataFrame, metrics: pd.DataFrame, symbol: str) -> dic
     s = close[symbol]
     last_126 = s.tail(126)
     last_252 = s.tail(252)
-    six_month_return = (s.dropna().iloc[-1] / s.dropna().iloc[-127] - 1) * 100 if s.notna().sum() > 126 else np.nan
-    sharpe_6m = sharpe(close[[symbol]], 126).iloc[-1, 0]
-    r2_1y = rolling_r2(close[[symbol]], 252).iloc[-1, 0]
+    # Horizons are calendar months. Recompute against the whole universe so the
+    # window anchors on the same market dates production used.
+    six_month_window = period_window(close, 6)
+    six_month_return = returns(close).loc[symbol, "6M Return"]
+    sharpe_6m = latest_sharpe(close[[symbol]], 6).iloc[0]
     row = metrics.loc[metrics["Symbol"].astype(str).str.upper() == symbol]
     m = row.iloc[0] if not row.empty else None
     return {
@@ -49,12 +51,13 @@ def audit_symbol(close: pd.DataFrame, metrics: pd.DataFrame, symbol: str) -> dic
         "last_252_rows": int(len(last_252)),
         "last_252_valid": int(last_252.notna().sum()),
         "last_252_missing": int(last_252.isna().sum()),
+        "6m_window_target_start": str(six_month_window["target_start"].date()),
+        "6m_window_actual_start": str(six_month_window["actual_start"].date()),
+        "6m_window_observations": int(six_month_window["observations"]),
         "6m_return_pct": float(six_month_return) if pd.notna(six_month_return) else None,
         "6m_sharpe_recomputed": float(sharpe_6m) if pd.notna(sharpe_6m) else None,
-        "1y_r2_recomputed": float(r2_1y) if pd.notna(r2_1y) else None,
         "production_6m_return_pct": float(m["6M Return"]) if m is not None and pd.notna(m.get("6M Return")) else None,
         "production_6m_sharpe": float(m["6M Sharpe"]) if m is not None and pd.notna(m.get("6M Sharpe")) else None,
-        "production_r2_1y": float(m["R² 1Y"]) if m is not None and pd.notna(m.get("R² 1Y")) else None,
         "production_momentum_score": float(m["Momentum Score"]) if m is not None and pd.notna(m.get("Momentum Score")) else None,
         "production_rank": int(m["Rank"]) if m is not None and pd.notna(m.get("Rank")) else None,
         "production_market_as_of": str(m["Market As Of"]) if m is not None else None,

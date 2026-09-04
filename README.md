@@ -72,7 +72,7 @@ Production market data is:
 
 For the canonical V2 price matrix, missing observations are forward-filled only after each stock's first genuine observation. Values before first observation are never fabricated.
 
-Momentum windows are 21/63/126/189/252 trading days. A missing longer window remains unavailable; available component weights are renormalized rather than assigning an artificial zero. Momentum score uses the weighted cross-sectional Z-score of Sharpe; R² is not calculated or exposed.
+Momentum horizons are **calendar periods** — 1/3/6/9/12 months — not fixed trading-day counts. Each window opens on the first market date on or after `as_of - N months`, so the reported horizon means what its label says regardless of how many sessions the exchange happened to trade. A horizon the dataset cannot reach remains unavailable; available component weights are renormalized rather than assigning an artificial zero. Momentum score uses the weighted, winsorised cross-sectional Z-score of period-scale Sharpe; R² is not calculated or exposed. See `docs/QUANT_METHODS.md` and `src/calendar_momentum.py`.
 
 ATR and other High/Low-dependent metrics are deliberately excluded because OHLC is outside the current data contract.
 

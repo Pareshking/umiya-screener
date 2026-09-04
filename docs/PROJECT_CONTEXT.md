@@ -49,23 +49,25 @@ The canonical universe is based on the NSE index composition used by the project
 
 Production market data is Yahoo Finance **Adjusted Close + Volume** with a 10-year window, common `as_of`, minimum 126 genuine observations and maximum 3-calendar-day freshness.
 
-For V2 price matrices, missing observations are forward-filled **after each stock's first genuine observation**. Values before first observation are never imputed.
+For V2 price matrices, missing observations are forward-filled **after each stock's first genuine observation**, and only across gaps of at most 5 sessions. Values before first observation are never imputed, and a suspended stock is not carried forward indefinitely. Dates where more than 70% of the universe has no observation are dropped as market holidays.
 
 ## Momentum methodology — validated
 
-Primary windows:
+Primary horizons are **calendar periods**, not fixed trading-day counts:
 
-- 1M: 21 trading days
-- 3M: 63
-- 6M: 126
-- 9M: 189
-- 12M: 252
+- 1M: 1 calendar month
+- 3M: 3 calendar months
+- 6M: 6 calendar months
+- 9M: 9 calendar months
+- 12M: 12 calendar months
 
-Each Sharpe component requires its matching full window. When a longer window is unavailable, that component remains missing and the configured momentum weights are renormalized over the components available for that stock/date.
+Each window opens on the first market date on or after `as_of - N months`. A row-counted window drifts against the calendar — NSE trades a variable number of sessions per month — so the labelled horizon and the measured horizon diverge. See `src/calendar_momentum.py`.
+
+Each Sharpe component requires its window to actually reach its calendar target (within 7 days). When a longer horizon is unavailable, that component remains missing and the configured momentum weights are renormalized over the components available for that stock/date.
 
 Primary screener eligibility remains 126 genuine observations.
 
-V2 uses Adjusted Close. R² is deliberately removed from the momentum score and stock-research output; the momentum score is based on the weighted cross-sectional Z-score of Sharpe across the five lookbacks.
+V2 uses Adjusted Close. R² is deliberately removed from the momentum score and stock-research output; the momentum score is based on the weighted, winsorised cross-sectional Z-score of period-scale Sharpe across the five calendar lookbacks.
 
 ## Phase 10 result
 

@@ -17,11 +17,14 @@ import yfinance as yf
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.data import load_universe  # noqa: E402
-from src.quant import MOMENTUM_WINDOWS, momentum_score, sharpe, rolling_r2  # noqa: E402
+from src.quant import MOMENTUM_MONTHS, MOMENTUM_WEIGHTS, latest_sharpe, momentum_score  # noqa: E402
 
 OUT = ROOT / "audit_output"
-WINDOWS = tuple(MOMENTUM_WINDOWS)
-WEIGHTS = {21: 0.10, 63: 0.30, 126: 0.30, 189: 0.20, 252: 0.10}
+# Horizons are calendar months (1M/3M/6M/9M/12M).
+MONTHS = tuple(MOMENTUM_MONTHS)
+WEIGHTS = dict(zip(MONTHS, MOMENTUM_WEIGHTS))
+# Approximate NSE session counts, used only for the missing-data row tallies.
+SESSIONS_PER_MONTH = 21
 
 
 def download(symbols: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -53,19 +56,22 @@ def latest_valid_score(adj: pd.DataFrame) -> pd.Series:
     common-date observation. Cross-sectional Z-scoring is then done per window.
     """
     components: dict[int, pd.Series] = {}
-    for w in WINDOWS:
+    for months in MONTHS:
         vals = {}
         for symbol in adj.columns:
             s = adj[symbol].dropna()
-            if len(s) < w + 1:
+            if s.empty:
                 vals[symbol] = np.nan
                 continue
-            x = s.iloc[-(w + 1):]
-            vals[symbol] = float(sharpe(x.to_frame(name=symbol), w).iloc[-1, 0] * rolling_r2(x.to_frame(name=symbol), w).iloc[-1, 0])
+            # Each stock's own last valid observation is its as-of point, so the
+            # calendar window is measured back from that date rather than from
+            # the common market date.
+            value = latest_sharpe(s.to_frame(name=symbol), months).iloc[0]
+            vals[symbol] = float(value) if pd.notna(value) else np.nan
         raw = pd.Series(vals, dtype=float)
         z = (raw - raw.mean()) / raw.std(ddof=1)
-        components[w] = z.clip(-3, 3)
-    score = sum(components[w] * WEIGHTS[w] for w in WINDOWS)
+        components[months] = z.clip(-3, 3)
+    score = sum(components[m] * WEIGHTS[m] for m in MONTHS)
     return score
 
 
@@ -105,12 +111,11 @@ def main() -> None:
             "V1-LatestValid Rank Change": r3.get(symbol) - r1.get(symbol),
             "V2-LatestValid Rank Change": r3.get(symbol) - r2.get(symbol),
         }
-        for w in WINDOWS:
-            recent = a.tail(w)
-            rec[f"Missing Last {w}"] = int(recent.isna().sum())
-            rec[f"Valid Last {w}"] = int(recent.notna().sum())
-            rec[f"V2 Sharpe {w} NaN"] = bool(pd.isna(sharpe(v2[[symbol]], w).iloc[-1, 0]))
-            rec[f"V2 R2 {w} NaN"] = bool(pd.isna(rolling_r2(v2[[symbol]], w).iloc[-1, 0]))
+        for months in MONTHS:
+            recent = a.tail(months * SESSIONS_PER_MONTH)
+            rec[f"Missing Last {months}M"] = int(recent.isna().sum())
+            rec[f"Valid Last {months}M"] = int(recent.notna().sum())
+            rec[f"V2 Sharpe {months}M NaN"] = bool(pd.isna(latest_sharpe(v2[[symbol]], months).iloc[0]))
         rows.append(rec)
 
     report = pd.DataFrame(rows).sort_values(["V2 Rank", "Symbol"], na_position="last")
@@ -122,10 +127,10 @@ def main() -> None:
 
     print(f"Universe: {len(symbols)}")
     print(f"Market as-of: {as_of.date()}")
-    print(f"V2 missing last 126: {int((report['Missing Last 126'] > 0).sum())}")
-    print(f"V2 missing last 252: {int((report['Missing Last 252'] > 0).sum())}")
-    print(f"V2 NaN 6M Sharpe/R2: {int((report['V2 Sharpe 126 NaN'] | report['V2 R2 126 NaN']).sum())}")
-    print(f"V2 NaN 12M Sharpe/R2: {int((report['V2 Sharpe 252 NaN'] | report['V2 R2 252 NaN']).sum())}")
+    print(f"V2 missing last 6M: {int((report['Missing Last 6M'] > 0).sum())}")
+    print(f"V2 missing last 12M: {int((report['Missing Last 12M'] > 0).sum())}")
+    print(f"V2 NaN 6M Sharpe: {int(report['V2 Sharpe 6M NaN'].sum())}")
+    print(f"V2 NaN 12M Sharpe: {int(report['V2 Sharpe 12M NaN'].sum())}")
     print(f"V2 zero/NaN Score: {int((report['V2 Score'].isna() | (report['V2 Score'] == 0)).sum())}")
     print(f"|V1-V2 rank change| >10: {nbig('V1-V2 Rank Change')}")
     print(f"|V1-LatestValid rank change| >10: {nbig('V1-LatestValid Rank Change')}")
@@ -133,15 +138,15 @@ def main() -> None:
 
     top = report.assign(abs_lv=report['V1-LatestValid Rank Change'].abs()).sort_values('abs_lv', ascending=False)
     print("\nLargest V1 vs LatestValid rank changes:")
-    print(top[["Symbol", "V1 Rank", "V2 Rank", "LatestValid Rank", "V1 Score", "V2 Score", "LatestValid Score", "Latest Valid Date", "Missing Last 126"]].head(30).to_string(index=False))
+    print(top[["Symbol", "V1 Rank", "V2 Rank", "LatestValid Rank", "V1 Score", "V2 Score", "LatestValid Score", "Latest Valid Date", "Missing Last 6M"]].head(30).to_string(index=False))
 
     with (OUT / "full_nse750_row_audit_summary.md").open("w", encoding="utf-8") as f:
         f.write(f"# Full NSE-750 missing-data treatment comparison\n\nMarket as-of: {as_of.date()}\n\n")
         f.write(f"- Universe: {len(symbols)}\n")
-        f.write(f"- V2 missing last 126: {int((report['Missing Last 126'] > 0).sum())}\n")
-        f.write(f"- V2 missing last 252: {int((report['Missing Last 252'] > 0).sum())}\n")
-        f.write(f"- V2 NaN 6M Sharpe/R²: {int((report['V2 Sharpe 126 NaN'] | report['V2 R2 126 NaN']).sum())}\n")
-        f.write(f"- V2 NaN 12M Sharpe/R²: {int((report['V2 Sharpe 252 NaN'] | report['V2 R2 252 NaN']).sum())}\n")
+        f.write(f"- V2 missing last 6M: {int((report['Missing Last 6M'] > 0).sum())}\n")
+        f.write(f"- V2 missing last 12M: {int((report['Missing Last 12M'] > 0).sum())}\n")
+        f.write(f"- V2 NaN 6M Sharpe: {int(report['V2 Sharpe 6M NaN'].sum())}\n")
+        f.write(f"- V2 NaN 12M Sharpe: {int(report['V2 Sharpe 12M NaN'].sum())}\n")
         f.write(f"- V2 zero/NaN score: {int((report['V2 Score'].isna() | (report['V2 Score'] == 0)).sum())}\n")
         f.write(f"- |V1-LatestValid rank change| >10: {nbig('V1-LatestValid Rank Change')}\n")
         f.write(f"- |V2-LatestValid rank change| >10: {nbig('V2-LatestValid Rank Change')}\n\n")
