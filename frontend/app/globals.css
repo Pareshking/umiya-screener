@@ -498,3 +498,87 @@ table.grid tbody tr:last-child td { border-bottom: 0; }
 }
 
 @media (min-width: 721px) { .hide-desktop { display: none !important; } }
+
+/* ── Setup badges ──────────────────────────────────────────────────────────
+   One word for what a row is doing. These are the only place besides sign
+   colour where hue carries meaning, so they are kept low-saturation and each
+   pairs a distinct tint with a distinct label — never colour alone. */
+
+.setup {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.setup-LEADER   { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+.setup-BREAKOUT { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
+.setup-STRONG   { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+.setup-RISING   { background: #f0f9ff; color: #075985; border-color: #bae6fd; }
+.setup-PULLBACK { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+.setup-BASING   { background: #f8fafc; color: #475569; border-color: #e2e8f0; }
+.setup-WATCH    { background: #fafafa; color: #6b7280; border-color: #e5e7eb; }
+.setup-WEAK     { background: #fff1f3; color: #9f1239; border-color: #fecdd3; }
+
+/* Rank movement. The arrow is the primary cue; colour reinforces it, so the
+   column still reads correctly in greyscale or with a colour deficiency. */
+.rankmove { font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+.rankmove .arrow { font-size: 9px; margin-right: 1px; }
+
+/* ── Market pulse ──────────────────────────────────────────────────────────
+   Participation across the whole universe, not the filtered view. */
+
+.pulse {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.pulse-cell { background: var(--surface); padding: 9px 12px; }
+.pulse-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink-muted); font-weight: 650;
+}
+.pulse-value { font-size: 17px; font-weight: 620; margin-top: 2px; letter-spacing: -.02em; }
+.pulse-sub { font-size: 10.5px; color: var(--ink-faint); font-family: var(--mono); }
+
+/* A hairline share bar under each participation figure — the proportion is
+   the point, and a number alone makes the reader do the division. */
+.pulse-bar { height: 2px; background: var(--line); border-radius: 2px; margin-top: 5px; overflow: hidden; }
+.pulse-bar span { display: block; height: 100%; background: var(--accent); opacity: .55; }
+
+/* Preset screens */
+.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; overflow-x: auto; }
+.preset {
+  border: 1px solid var(--line-strong); background: var(--surface);
+  border-radius: 99px; padding: 5px 11px; cursor: pointer;
+  font-family: var(--sans); font-size: 12px; font-weight: 550; color: var(--ink-secondary);
+  white-space: nowrap;
+}
+.preset:hover { background: var(--surface-hover); }
+.preset[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+@media (max-width: 720px) {
+  /* A 2-column grid needed three rows for five cells and left a hole in the
+     last one, pushing the table back off the first screen. One scrolling row
+     keeps breadth glanceable without costing the data its place. */
+  .pulse {
+    display: flex; gap: 1px;
+    overflow-x: auto; scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .pulse::-webkit-scrollbar { display: none; }
+  .pulse-cell { flex: 0 0 auto; min-width: 124px; padding: 8px 11px; scroll-snap-align: start; }
+  .pulse-value { font-size: 15px; }
+  .pulse-sub { font-size: 9.5px; }
+  .presets { flex-wrap: nowrap; scrollbar-width: none; }
+  .presets::-webkit-scrollbar { display: none; }
+}

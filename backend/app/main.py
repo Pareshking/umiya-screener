@@ -12,7 +12,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.quant import CHART_EMA_SPANS, chart_overlays, relative_strength
+from src.quant import CHART_EMA_SPANS, SETUP_RULES, chart_overlays, relative_strength, universe_breadth
 from src.storage import ObjectStoreConfig, download_prefix, read_pointer
 from .operational import OperationalMiddleware
 from .schemas import ScreenerQuery
@@ -220,7 +220,34 @@ def metadata(response: Response) -> dict:
     except (MetricsCacheUnavailable, MetricsCacheStale) as exc:
         raise _cache_error(exc) from exc
     response.headers["Cache-Control"] = DATASET_CACHE_CONTROL
-    return {"universe": len(frame), "universe_name": "NIFTY 750", "source_counts": {str(k): int(v) for k, v in frame["Index"].value_counts().to_dict().items()}, "industries": sorted(frame["Industry"].dropna().astype(str).unique().tolist()), "filters": FILTERABLE, "built_at": store.built_at.isoformat() if store.built_at else None, "market_as_of": str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None, "data_contract": ["adj_close", "volume"]}
+    # Breadth describes the market, so it is always computed over the whole
+    # eligible universe rather than whatever the caller's filters return.
+    #
+    # Every aggregate below is guarded on the columns it needs. A metrics
+    # dataset published before these columns existed is still perfectly
+    # servable, and the homepage calls this endpoint first -- letting a missing
+    # column raise here would take the whole page down rather than drop one
+    # panel from the sidebar.
+    top_3m: list[dict] = []
+    sectors: list[dict] = []
+    if "3M Return" in frame.columns:
+        ranked = frame.dropna(subset=["3M Return"])
+        if "Symbol" in ranked.columns:
+            top_3m = ranked.nlargest(5, "3M Return")[["Symbol", "3M Return"]].to_dict(orient="records")
+        if "Industry" in ranked.columns and not ranked.empty:
+            sectors = (
+                ranked.groupby(ranked["Industry"].fillna("Other"))["3M Return"]
+                .agg(["mean", "count"])
+                .sort_values("mean", ascending=False)
+                .head(6)
+                .reset_index()
+                .rename(columns={"Industry": "industry", "mean": "avg_3m", "count": "stocks"})
+                .to_dict(orient="records")
+            )
+    return {"breadth": universe_breadth(frame), "top_performers_3m": top_3m,
+            "sectors_in_focus_3m": sectors,
+            "setups": [{"label": label, "rule": rule} for label, rule in SETUP_RULES],
+            "universe": len(frame), "universe_name": "NIFTY 750", "source_counts": {str(k): int(v) for k, v in frame["Index"].value_counts().to_dict().items()}, "industries": sorted(frame["Industry"].dropna().astype(str).unique().tolist()), "filters": FILTERABLE, "built_at": store.built_at.isoformat() if store.built_at else None, "market_as_of": str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None, "data_contract": ["adj_close", "volume"]}
 
 
 @app.post("/api/v1/screener/query")

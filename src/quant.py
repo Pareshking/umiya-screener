@@ -320,3 +320,168 @@ def chart_overlays(close: pd.Series, spans: Sequence[int] = CHART_EMA_SPANS) -> 
     average wearing its name.
     """
     return {span: close.ewm(span=span, min_periods=span).mean() for span in spans}
+
+
+# ── Rank dynamics ───────────────────────────────────────────────────────────
+# The composite score is a level; where a stock is *heading* is a different
+# signal, and the engine already computes the full score history, so the
+# rank it held a month or a quarter ago costs nothing extra to read off.
+
+def cross_sectional_rank(scores: pd.Series) -> pd.Series:
+    """Dense competition rank of a score cross-section, best = 1."""
+    return scores.rank(ascending=False, method="min", na_option="keep")
+
+
+def rank_as_of(score_history: pd.DataFrame, months: int) -> pd.Series:
+    """Cross-sectional rank as it stood `months` calendar months ago.
+
+    Uses the same calendar anchoring as every other horizon, so "rank a month
+    ago" means the rank on the first session on or after that calendar date,
+    not the rank 21 rows back.
+    """
+    if score_history.empty:
+        return pd.Series(dtype=float)
+    index = pd.DatetimeIndex(score_history.index)
+    as_of = latest_as_of_date(index)
+    starts = calendar_start_positions(index, months, latest_as_of=as_of)
+    targets = calendar_targets(index, months, latest_as_of=as_of)
+    end = len(index) - 1
+    start = int(starts[end])
+    if not window_is_reachable(index, start, targets[end], end):
+        return pd.Series(np.nan, index=score_history.columns)
+    return cross_sectional_rank(score_history.iloc[start])
+
+
+def rank_delta(score_history: pd.DataFrame, months: int) -> pd.Series:
+    """Places gained since `months` ago. Positive = moved up the table.
+
+    Signed so that up is good, matching every other coloured column: a stock
+    going from rank 40 to rank 12 reads +28, not -28.
+    """
+    past = rank_as_of(score_history, months)
+    if past.empty or past.isna().all():
+        return pd.Series(np.nan, index=score_history.columns)
+    return past - cross_sectional_rank(score_history.iloc[-1])
+
+
+def score_percentile(scores: pd.Series) -> pd.Series:
+    """Percentile of each score within the eligible cross-section (0-99)."""
+    return (scores.rank(pct=True, na_option="keep") * 100).clip(upper=99).round(0)
+
+
+def max_drawdown(close: pd.DataFrame, months: int = 12) -> pd.Series:
+    """Worst peak-to-trough decline over the trailing calendar window, in percent.
+
+    Reported as a negative number, because that is the direction it describes.
+    """
+    close = clean_prices(close)
+    if close.empty:
+        return pd.Series(dtype=float)
+    window = close.loc[_calendar_slice(close, months):]
+    running_peak = window.cummax()
+    drawdown = (window / running_peak.replace(0, np.nan) - 1) * 100
+    return drawdown.min()
+
+
+def sma_distance(close: pd.DataFrame, window: int = 200) -> pd.Series:
+    """Percent distance of the latest close from its simple moving average.
+
+    The 200 DMA is a different line from the 200 EMA and traders read them
+    differently, so it is reported separately rather than aliased.
+    """
+    close = clean_prices(close)
+    if close.empty:
+        return pd.Series(dtype=float)
+    sma = close.rolling(window, min_periods=window).mean().apply(_last_valid)
+    latest = close.apply(_last_valid)
+    return (latest / sma.replace(0, np.nan) - 1) * 100
+
+
+# ── Setup classification ────────────────────────────────────────────────────
+# A single word for what a row is doing, so the table can be skimmed without
+# reading eight numbers per line. Every label is a stated rule over columns
+# that already exist -- nothing here is a judgement the data cannot support,
+# and the order below is the precedence order.
+
+SETUP_RULES = (
+    ("LEADER", "top decile score, above the 200 EMA, within 5% of its 52-week high"),
+    ("BREAKOUT", "within 2% of its 52-week high on above-average volume"),
+    ("STRONG", "top quartile score, above both the 50 and 200 EMA"),
+    ("PULLBACK", "top quartile score but trading back below its 50 EMA"),
+    ("RISING", "gained 20 or more places over the last three months"),
+    ("BASING", "above the 200 EMA but more than 20% below its 52-week high"),
+    ("WATCH", "everything else that is still above its 200 EMA"),
+    ("WEAK", "below the 200 EMA"),
+)
+
+
+def classify_setup(frame: pd.DataFrame) -> pd.Series:
+    """Label each row with the first matching rule in SETUP_RULES."""
+    pct = frame.get("Score Percentile")
+    from_high = frame.get("% From 52W High")
+    ema50 = frame.get("% EMA 50")
+    ema200 = frame.get("% EMA 200")
+    vol = frame.get("Volume Ratio")
+    d3m = frame.get("Rank Δ3M")
+
+    empty = pd.Series(np.nan, index=frame.index)
+    pct = empty if pct is None else pct
+    from_high = empty if from_high is None else from_high
+    ema50 = empty if ema50 is None else ema50
+    ema200 = empty if ema200 is None else ema200
+    vol = empty if vol is None else vol
+    d3m = empty if d3m is None else d3m
+
+    above200 = ema200 > 0
+    above50 = ema50 > 0
+
+    out = pd.Series("WEAK", index=frame.index, dtype=object)
+    out[above200] = "WATCH"
+    out[above200 & (from_high < -20)] = "BASING"
+    out[above200 & (d3m >= 20)] = "RISING"
+    out[(pct >= 75) & ~above50 & above200] = "PULLBACK"
+    out[(pct >= 75) & above50 & above200] = "STRONG"
+    out[(from_high >= -2) & (vol > 1.2)] = "BREAKOUT"
+    out[(pct >= 90) & above200 & (from_high >= -5)] = "LEADER"
+    out[ema200.isna()] = "—"
+    return out
+
+
+def universe_breadth(frame: pd.DataFrame) -> dict:
+    """Participation statistics for the whole eligible universe.
+
+    Breadth is a property of the market, not of whatever the current filters
+    happen to return, so this is always computed over the full frame.
+    """
+    total = int(len(frame))
+    if not total:
+        return {"total": 0}
+
+    def share(column: str, predicate) -> dict | None:
+        # Guarded on column presence: a metrics dataset published before a
+        # column existed is still perfectly servable, and this feeds the
+        # endpoint the homepage calls first.
+        if column not in frame.columns:
+            return None
+        count = int(predicate(pd.to_numeric(frame[column], errors="coerce")).sum())
+        return {"count": count, "pct": round(count / total * 100, 1)}
+
+    d1m = frame.get("Rank Δ1M")
+    entered = exited = None
+    if d1m is not None and "Rank" in frame.columns:
+        rank_now = pd.to_numeric(frame["Rank"], errors="coerce")
+        # rank_delta is signed so that up is good (past - now), so the rank a
+        # month ago is today's rank PLUS the delta, not minus it.
+        rank_past = rank_now + pd.to_numeric(d1m, errors="coerce")
+        entered = int(((rank_now <= 50) & (rank_past > 50)).sum())
+        exited = int(((rank_now > 50) & (rank_past <= 50)).sum())
+
+    return {
+        "total": total,
+        "above_50_ema": share("% EMA 50", lambda c: c > 0),
+        "above_200_ema": share("% EMA 200", lambda c: c > 0),
+        "near_52w_high": share("% From 52W High", lambda c: c >= -10),
+        "positive_3m": share("3M Return", lambda c: c > 0),
+        "entered_top_50": entered,
+        "exited_top_50": exited,
+    }

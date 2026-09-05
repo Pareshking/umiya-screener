@@ -38,10 +38,13 @@ export function display(field: string, value: Cell): string {
   if (field === "CMP") return rupee(value);
   if (field === "Volume Ratio") return `${num(value, 2)}×`;
   if (field === "Rank") return String(value);
+  if (field === "Score Percentile") return String(Math.round(Number(value)));
   if (
     field.includes("Return") ||
     field.includes("EMA") ||
     field === "% From 52W High" ||
+    field === "% 200 DMA" ||
+    field === "Max DD 12M" ||
     field === "Persistence 6M %"
   ) {
     return pct(value);
@@ -61,9 +64,13 @@ export function display(field: string, value: Cell): string {
 /** Columns whose sign should be coloured. Sign colour is reserved for values
  *  where up/down actually means better/worse — never for identifiers. */
 export function isSigned(field: string): boolean {
+  // Max drawdown is negative by definition, so colouring it red on every row
+  // carries no information — it would just tint the column.
+  if (field === "Max DD 12M") return false;
   return (
     field.includes("Return") ||
     field.includes("EMA") ||
+    field === "% 200 DMA" ||
     field === "% From 52W High" ||
     field === "Momentum Score" ||
     field === "Acceleration" ||
