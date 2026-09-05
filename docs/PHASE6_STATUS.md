@@ -28,7 +28,7 @@ Remaining acceptance check: production browser/mobile walkthrough after latest d
 
 ### 6C — Data freshness and scheduled refresh
 
-- Weekday GitHub Actions refresh: 13:30 UTC (19:00 IST).
+- Daily GitHub Actions refresh: 01:30 UTC (07:00 IST), the morning after each trading day.
 - Canonical 10-year dataset is rebuilt before metrics.
 - Generated datasets are validated before R2 publication.
 - Render metrics cache has a 24-hour TTL and reports degraded/stale state when exceeded.

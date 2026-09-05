@@ -12,6 +12,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.config import METRICS_CACHE_TTL_HOURS
 from src.quant import CHART_EMA_SPANS, SETUP_RULES, chart_overlays, relative_strength, universe_breadth
 from src.storage import ObjectStoreConfig, download_prefix, read_pointer
 from .operational import OperationalMiddleware
@@ -210,7 +211,7 @@ def health() -> dict:
     except (MetricsCacheUnavailable, MetricsCacheStale) as exc:
         ready_state, detail = False, str(exc)
     built_at = store.built_at.isoformat() if store.built_at else None
-    return {"status": "ok" if ready_state else "degraded", "dataset_ready": ready_state, "detail": detail, "built_at": built_at, "max_metrics_age_hours": 24}
+    return {"status": "ok" if ready_state else "degraded", "dataset_ready": ready_state, "detail": detail, "built_at": built_at, "max_metrics_age_hours": METRICS_CACHE_TTL_HOURS}
 
 
 @app.get("/api/v1/screener/metadata")

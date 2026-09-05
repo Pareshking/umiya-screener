@@ -27,14 +27,14 @@ Harden the production Screener for operational reliability without changing the 
 
 ## 7C — Stale-data policy
 
-- [x] Maximum metrics age is explicitly 24 hours.
+- [x] Maximum metrics age is explicitly 36 hours, reported by /health from the same constant the store enforces.
 - [x] Stale metrics return a safe degraded API state.
 - [x] Frontend has an explicit degraded/retry path.
 - [x] Dataset `built_at` and `market_as_of` remain visible when healthy.
 
 ## 7D — Scheduled operations
 
-- [x] Weekday refresh remains scheduled at 13:30 UTC / 19:00 IST.
+- [x] Refresh runs daily at 01:30 UTC / 07:00 IST (was weekdays 13:30 UTC; that left a 72h weekend gap against the TTL and served 503 from Saturday evening to Monday).
 - [x] Refresh uses immutable R2 publication followed by pointer advancement.
 - [x] Post-publication production readiness smoke is part of the refresh workflow.
 - [x] Refresh failure is visible through GitHub Actions.
