@@ -133,3 +133,58 @@ Validate
 ```
 
 This policy is required for production reliability.
+
+## Third-party fundamentals (added 2026-09-05)
+
+Fundamentals, delivery data and NSE sector classification are joined from
+`jadeja-rajdeep/nse-momentum-screener`. This section records what that source
+actually is, because it is not a vendor feed and should not be mistaken for one.
+
+### What it is
+
+The repo publishes a static site. Its `m.json` is a **PHPMyAdmin export of a
+private MySQL database** (`marketwatcher_nse_v4`, table `m`), committed roughly
+once per trading day. 2,777 rows, 102 columns, covering 100% of our NIFTY 750
+universe at the time of integration.
+
+### What it is not
+
+- **It is not a pipeline.** The code that produces the data is not in the repo,
+  so we cannot reproduce, audit, or repair it. We consume an output.
+- **It is not licensed.** The repo carries no licence file, so no usage rights
+  are granted by default. Using it beyond personal research is a decision for
+  the repository owner to be asked about, not one this code makes.
+- **It is not guaranteed.** It is one person's repository and can be made
+  private or deleted without notice.
+
+### Where the upstream data appears to originate
+
+Inferred from field naming, not from documentation:
+
+| Fields | Likely origin |
+|---|---|
+| ISIN; Macro Economic Sector / Sector / Industry / Basic Industry | NSE's own four-level industry classification |
+| No of trades, Net Turnover, Delivery Volume, Delivery % | NSE bhavcopy and security-wise delivery files |
+| Prom Hold %, Emp Trust %, Public Hold % | NSE shareholding pattern |
+| PE, ROE, EPS/Sales growth, Book Value, Yield, Debt, Cash Flow | An unidentified fundamentals provider |
+
+Most of it is therefore reproducible from NSE's own public files if we ever
+need to remove the dependency. The valuation and earnings fields are the part
+that would need a real provider.
+
+### Rules this imposes
+
+1. **Prices never come from here.** Adjusted Close and Volume drive every
+   ranking metric; a second, unreproducible price vendor would make the engine
+   unauditable. Only fields we cannot compute ourselves are consumed.
+2. **Failure is explicit, never silent.** `src/fundamentals.py` returns a
+   status, not an exception. A missing, private, malformed or stale upstream
+   publishes the dataset without fundamentals, and the API states
+   `fundamentals.available = false` with the reason. The UI shows a standing
+   notice and **hides** the affected columns rather than showing them blank —
+   an empty PE column reads as "these stocks have no PE" rather than "we could
+   not read the source".
+3. **Staleness counts as unavailable.** A repo that stops updating still serves
+   HTTP 200 with old numbers. If the dump's own `Date` column is more than
+   `MAX_SOURCE_AGE_DAYS` (7) behind, it is treated as abandoned.
+4. **Attribution is shown** in the footer whenever the data is in use.
