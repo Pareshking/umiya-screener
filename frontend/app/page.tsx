@@ -14,7 +14,12 @@ type Breadth = {
   near_52w_high?: Share; positive_3m?: Share;
   entered_top_50?: number | null; exited_top_50?: number | null;
 };
+type FundamentalsStatus = {
+  available: boolean; source_repo?: string | null; as_of?: string | null;
+  reason?: string | null; covered?: number;
+};
 type Metadata = {
+  fundamentals?: FundamentalsStatus;
   universe: number; universe_name: string; industries: string[]; filters: string[];
   built_at: string | null; market_as_of?: string | null;
   breadth?: Breadth;
@@ -40,8 +45,21 @@ const columns = [
   { field: "% EMA 200", label: "EMA200" },
   { field: "Volume Ratio", label: "Vol" },
   { field: "Max DD 12M", label: "Max DD" },
+  { field: "Delivery %", label: "Dlv %" },
+  { field: "PE", label: "PE" },
+  { field: "ROE", label: "ROE" },
+  { field: "Market Cap", label: "Mkt Cap" },
   { field: "Industry", label: "Industry" },
 ];
+
+/* Columns sourced from the third party rather than computed here. When that
+   source is unavailable they are hidden outright: a column of dashes reads as
+   "these stocks have no PE", which is a different and wrong claim. */
+const fundamentalFields = new Set([
+  "Market Cap", "PE", "ROE", "Debt", "Book Value", "Dividend Yield",
+  "Promoter Holding %", "Public Holding %", "Delivery %", "Delivery Volume",
+  "EPS Growth Qtr %", "Sales Growth Qtr %", "NSE Sector", "Basic Industry",
+]);
 
 /* Preset screens. Each is just a named set of filters over columns that
    already exist — no server-side special cases, so a preset can always be
@@ -62,6 +80,7 @@ const filterGroups = [
   { title: "Momentum", fields: ["Momentum Score", "Score Percentile", "Setup", "Rank \u03941M", "Rank \u03943M", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "Industry Relative"] },
   { title: "Trend", fields: ["CMP", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200"] },
   { title: "Risk & participation", fields: ["Persistence 6M %", "Volume Ratio", "Max DD 12M", "% 200 DMA"] },
+  { title: "Fundamentals", fields: ["Market Cap", "PE", "ROE", "Debt", "Dividend Yield", "Promoter Holding %", "Delivery %", "EPS Growth Qtr %", "Sales Growth Qtr %"] },
   { title: "Data quality", fields: ["Data Age Days"] },
 ];
 const selectFields = new Set(["Index", "Industry", "Symbol", "Setup"]);
@@ -100,7 +119,11 @@ export default function Home() {
     setPage(1);
   }
 
-  const shown = useMemo(() => columns.filter((c) => visible.includes(c.field)), [visible]);
+  const fundamentalsOk = metadata?.fundamentals?.available !== false;
+  const shown = useMemo(
+    () => columns.filter((c) => visible.includes(c.field) && (fundamentalsOk || !fundamentalFields.has(c.field))),
+    [visible, fundamentalsOk],
+  );
 
   const loadMetadata = useCallback(async (signal?: AbortSignal) => {
     const r = await fetch(`${API}/api/v1/screener/metadata`, { signal });
@@ -305,6 +328,21 @@ export default function Home() {
           ))}
         </div>
 
+        {metadata?.fundamentals && !metadata.fundamentals.available && (
+          <div className="notice">
+            <strong>Fundamentals unavailable</strong>
+            <span>
+              PE, ROE, market cap, delivery and shareholding come from{" "}
+              <code>{metadata.fundamentals.source_repo ?? "a third-party source"}</code>, which is
+              not under our control. Those columns are hidden rather than shown blank, because an
+              empty column would read as "these stocks have no PE" rather than "we could not read
+              the source". Everything else on this page is computed from our own price data and is
+              unaffected.
+              {metadata.fundamentals.reason ? <><br /><span className="notice-reason">Reason: {metadata.fundamentals.reason}</span></> : null}
+            </span>
+          </div>
+        )}
+
         {error && (
           <div className="banner">
             <strong style={{ flex: "none" }}>{degraded ? "Dataset unavailable" : "Error"}</strong>
@@ -463,6 +501,16 @@ export default function Home() {
 
         <p className="faint" style={{ fontSize: 11.5, marginTop: 14 }}>
           Umiya Screener V2 · server-side quantitative engine · calendar-period horizons · no browser-side market-data calculations
+          {metadata?.fundamentals?.available && (
+            <>
+              <br />
+              Fundamentals, delivery and NSE sector classification via{" "}
+              <code>{metadata.fundamentals.source_repo}</code>
+              {metadata.fundamentals.as_of ? ` as of ${metadata.fundamentals.as_of}` : ""}
+              {metadata.fundamentals.covered ? ` · ${metadata.fundamentals.covered} of ${total || metadata.universe} covered` : ""}
+              . Prices and every ranking metric are our own.
+            </>
+          )}
         </p>
       </main>
 
