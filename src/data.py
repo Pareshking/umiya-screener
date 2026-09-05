@@ -10,6 +10,7 @@ import requests
 import yfinance as yf
 
 from .config import (
+    BENCHMARK,
     EXPECTED_INDEX_COUNTS,
     HTTP_HEADERS,
     INDEX_COUNT_MIN_RATIO,
@@ -174,6 +175,40 @@ def fetch_prices(symbols: Sequence[str], start: str | None = None, end: str | No
             )
         result[output_field] = frame.reindex(columns=requested)
     return result
+
+
+def fetch_benchmark(symbol: str = BENCHMARK, start: str | None = None, end: str | None = None) -> pd.Series:
+    """Download the benchmark index close over the same ten-year window.
+
+    Relative strength needs something to be relative to. BENCHMARK was declared
+    in config from the start but never actually fetched, so every RS-style
+    reading was unavailable rather than wrong.
+
+    The index is returned as a plain Series of closes. Yahoo does not publish an
+    Adjusted Close for an index that differs from its Close -- an index has no
+    dividends or splits to adjust for -- so Close is the canonical value here.
+    """
+    default_start, default_end = _ten_year_window()
+    raw = yf.download(
+        symbol,
+        start=start or default_start,
+        end=end or default_end,
+        auto_adjust=False,
+        actions=False,
+        progress=False,
+        threads=False,
+    )
+    if raw is None or raw.empty:
+        raise RuntimeError(f"Yahoo returned no history for benchmark {symbol}")
+    frame = raw["Close"] if "Close" in raw.columns.get_level_values(0) else None
+    if frame is None:
+        raise RuntimeError(f"Yahoo benchmark response is missing Close: {symbol}")
+    series = frame.iloc[:, 0] if isinstance(frame, pd.DataFrame) else frame
+    series.index = pd.to_datetime(series.index).tz_localize(None)
+    series = series.sort_index().dropna()
+    if series.empty:
+        raise RuntimeError(f"Benchmark {symbol} has no usable closes")
+    return series.rename("benchmark")
 
 
 def fetch_ohlcv(symbols: Sequence[str], period: str = "10y") -> dict[str, pd.DataFrame]:

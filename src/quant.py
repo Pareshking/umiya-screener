@@ -289,3 +289,34 @@ def _series_z(series: pd.Series) -> pd.Series:
 
 def zscore(s: pd.Series, clip: float = 3.0) -> pd.Series:
     return _series_z(s).clip(-clip, clip)
+
+
+CHART_EMA_SPANS = (20, 50, 100, 200)
+
+
+def relative_strength(stock: pd.Series, benchmark: pd.Series) -> pd.Series:
+    """Relative strength of a stock vs the benchmark, indexed to 100 at the window start.
+
+    Above 100 means the stock has outperformed the benchmark since the first
+    common date in the window; below 100 means it has lagged. Indexing to the
+    window start is what makes the line readable on any timeframe: it always
+    answers "since this chart begins", not "since some fixed epoch".
+    """
+    aligned = pd.DataFrame({"stock": stock, "benchmark": benchmark}).dropna()
+    if len(aligned) < 2:
+        return pd.Series(dtype=float)
+    ratio = aligned["stock"] / aligned["benchmark"].replace(0, np.nan)
+    ratio = ratio.dropna()
+    if ratio.empty:
+        return pd.Series(dtype=float)
+    return (ratio / ratio.iloc[0]) * 100.0
+
+
+def chart_overlays(close: pd.Series, spans: Sequence[int] = CHART_EMA_SPANS) -> dict[int, pd.Series]:
+    """EMA overlays for the price chart, computed on the full history.
+
+    The EMAs are computed before the chart window is sliced. An EMA restarted at
+    the left edge of a 3-month view is not the 200 EMA -- it is a 60-observation
+    average wearing its name.
+    """
+    return {span: close.ewm(span=span, min_periods=span).mean() for span in spans}
