@@ -7,7 +7,11 @@ DATA_DIR = BASE_DIR / "data"
 CACHE_DIR = BASE_DIR / "data_cache"
 CACHE_DIR.mkdir(exist_ok=True)
 METRICS_CACHE_PATH = CACHE_DIR / "screener_metrics.parquet"
-METRICS_CACHE_TTL_HOURS = 24
+# Headroom for exactly one missed or late refresh. The scheduled build runs
+# daily, so a 24h TTL left zero slack: a run that failed or started late took
+# the whole API to 503. 36h tolerates one bad night while still catching a
+# genuinely dead pipeline inside a day and a half.
+METRICS_CACHE_TTL_HOURS = 36
 
 # Momentum horizons are CALENDAR months, not fixed trading-row counts.
 # See src/calendar_momentum.py for why 21/63/126/189/252 rows were wrong.
