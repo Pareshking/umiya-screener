@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import os
+import threading
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +27,17 @@ app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=Fals
 # a requested symbol's price/volume series is safe until the published dataset changes.
 _CHART_CACHE_DATASET: str | None = None
 _CHART_CACHE: dict[str, pd.DataFrame] = {}
+_CHART_CACHE_LOCK = threading.Lock()
+
+# Serialises price-dataset hydration. The warm-up thread and a concurrent chart
+# request would otherwise download into the same temporary directory and race on
+# the rename.
+_PRICE_DATASET_LOCK = threading.Lock()
+
+# The published datasets change once per scheduled refresh, so a short shared
+# cache is safe and saves a full origin round trip on every repeat view. The
+# health/readiness probes stay uncached: their whole job is to report live state.
+DATASET_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=3600"
 
 
 def _cache_error(exc: Exception) -> HTTPException:
@@ -46,6 +58,11 @@ def _read_price_dataset(dataset: Path) -> tuple[Path, dict] | None:
 
 
 def _ensure_price_dataset() -> tuple[Path, dict]:
+    with _PRICE_DATASET_LOCK:
+        return _ensure_price_dataset_locked()
+
+
+def _ensure_price_dataset_locked() -> tuple[Path, dict]:
     PRICE_ROOT.mkdir(parents=True, exist_ok=True)
     pointer = PRICE_ROOT / "LATEST.json"
     if pointer.exists():
@@ -89,10 +106,11 @@ def _ensure_price_dataset() -> tuple[Path, dict]:
 def _load_chart_frame(dataset: Path, symbol: str) -> pd.DataFrame:
     global _CHART_CACHE_DATASET
     dataset_key = str(dataset.resolve())
-    if _CHART_CACHE_DATASET != dataset_key:
-        _CHART_CACHE.clear()
-        _CHART_CACHE_DATASET = dataset_key
-    cached = _CHART_CACHE.get(symbol)
+    with _CHART_CACHE_LOCK:
+        if _CHART_CACHE_DATASET != dataset_key:
+            _CHART_CACHE.clear()
+            _CHART_CACHE_DATASET = dataset_key
+        cached = _CHART_CACHE.get(symbol)
     if cached is not None:
         return cached
     try:
@@ -101,19 +119,36 @@ def _load_chart_frame(dataset: Path, symbol: str) -> pd.DataFrame:
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Chart data unavailable for {symbol}.") from exc
     chart = pd.DataFrame({"date": close.index, "adj_close": close[symbol].values, "volume": volume[symbol].reindex(close.index).values}).dropna(subset=["adj_close"])
-    _CHART_CACHE[symbol] = chart
+    with _CHART_CACHE_LOCK:
+        if _CHART_CACHE_DATASET == dataset_key:
+            _CHART_CACHE[symbol] = chart
     return chart
 
 
-@app.on_event("startup")
-def warm_price_dataset() -> None:
-    # Download/validate the immutable price dataset during service startup so the
-    # first user chart does not pay the R2 cold-load penalty. Failure is non-fatal;
-    # the chart endpoint will retry lazily if the object store is temporarily unavailable.
+def _warm_price_dataset_now() -> None:
+    # Failure is non-fatal; the chart endpoint retries lazily if the object store
+    # is temporarily unavailable.
     try:
         _ensure_price_dataset()
     except Exception:
         pass
+
+
+@app.on_event("startup")
+def warm_price_dataset() -> None:
+    """Hydrate the price dataset in the background, never blocking startup.
+
+    This ran inline. A sync startup handler is awaited before uvicorn binds the
+    port, so the ~37 MB price dataset was downloaded from R2 object-by-object
+    before the process would accept a single connection -- and every cold start
+    pays it again, because the container filesystem is ephemeral. The screener
+    table needs none of it: it reads the ~0.3 MB metrics dataset. Only charts do.
+
+    So the download moves to a daemon thread. The port binds immediately, the
+    screener is servable as soon as the metrics dataset loads, and a chart
+    arriving before the warm-up finishes simply waits on the same lock.
+    """
+    threading.Thread(target=_warm_price_dataset_now, name="warm-price-dataset", daemon=True).start()
 
 
 @app.get("/api/v1/live")
@@ -146,11 +181,12 @@ def health() -> dict:
 
 
 @app.get("/api/v1/screener/metadata")
-def metadata() -> dict:
+def metadata(response: Response) -> dict:
     try:
         frame = store.get()
     except (MetricsCacheUnavailable, MetricsCacheStale) as exc:
         raise _cache_error(exc) from exc
+    response.headers["Cache-Control"] = DATASET_CACHE_CONTROL
     return {"universe": len(frame), "universe_name": "NIFTY 750", "source_counts": {str(k): int(v) for k, v in frame["Index"].value_counts().to_dict().items()}, "industries": sorted(frame["Industry"].dropna().astype(str).unique().tolist()), "filters": FILTERABLE, "built_at": store.built_at.isoformat() if store.built_at else None, "market_as_of": str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None, "data_contract": ["adj_close", "volume"]}
 
 
@@ -191,7 +227,7 @@ def screener_export(payload: ScreenerQuery) -> Response:
 
 
 @app.get("/api/v1/stocks/{symbol}")
-def stock(symbol: str) -> dict:
+def stock(symbol: str, response: Response) -> dict:
     symbol = symbol.upper().replace(".NS", "")
     try:
         frame = store.get()
@@ -200,11 +236,12 @@ def stock(symbol: str) -> dict:
     rows = frame[frame["Symbol"] == symbol]
     if rows.empty:
         raise HTTPException(status_code=404, detail=f"Stock {symbol} is not in the current eligible universe.")
+    response.headers["Cache-Control"] = DATASET_CACHE_CONTROL
     return rows.iloc[0].replace({pd.NA: None}).to_dict()
 
 
 @app.get("/api/v1/stocks/{symbol}/chart")
-def stock_chart(symbol: str, days: int = Query(252, ge=20, le=2520)) -> dict:
+def stock_chart(response: Response, symbol: str, days: int = Query(252, ge=20, le=2520)) -> dict:
     symbol = symbol.upper().replace(".NS", "")
     try:
         frame = store.get()
@@ -216,4 +253,5 @@ def stock_chart(symbol: str, days: int = Query(252, ge=20, le=2520)) -> dict:
     chart = _load_chart_frame(dataset, symbol).tail(days)
     if chart.empty:
         raise HTTPException(status_code=404, detail=f"Chart data unavailable for {symbol}.")
+    response.headers["Cache-Control"] = DATASET_CACHE_CONTROL
     return {"symbol": symbol, "market_as_of": metadata.get("market_as_of"), "data_contract": ["adj_close", "volume"], "rows": chart.where(pd.notna(chart), None).to_dict(orient="records")}

@@ -56,11 +56,25 @@ def test_oversized_request_is_rejected():
     assert response.headers["x-request-id"]
 
 
-def test_api_responses_are_not_cacheable(monkeypatch):
+def test_dataset_reads_are_cacheable_and_probes_are_not(monkeypatch):
+    """Probes report live state, so they stay uncached.
+
+    The published dataset only changes once per scheduled refresh, so the reads
+    that serve it carry a short shared cache instead: repeat views then skip a
+    full origin round trip, which matters because the origin sleeps on idle.
+    """
     frame = ready_frame()
     monkeypatch.setattr(main.store, "get", lambda: frame.copy())
     monkeypatch.setattr(main.store, "_built_at", pd.Timestamp("2026-08-15", tz="UTC").to_pydatetime())
     client = TestClient(main.app)
+
     response = client.get("/api/v1/screener/metadata")
     assert response.status_code == 200
-    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["cache-control"] == main.DATASET_CACHE_CONTROL
+
+    for path in ("/api/v1/live", "/api/v1/health"):
+        assert client.get(path).headers["cache-control"] == "no-store", path
+
+    # Anything not explicitly marked cacheable must still default to no-store.
+    query = client.post("/api/v1/screener/query", json={"filters": [], "sort": {"field": "Rank", "direction": "asc"}, "page": 1, "page_size": 10})
+    assert query.headers["cache-control"] == "no-store"
