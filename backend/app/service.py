@@ -11,12 +11,18 @@ import pandas as pd
 
 from src.config import METRICS_CACHE_PATH, METRICS_CACHE_TTL_HOURS
 from src.quant import (
+    classify_setup,
     clean_holidays,
     industry_relative,
     momentum_acceleration,
     latest_sharpe,
+    max_drawdown,
     momentum_score,
+    rank_delta,
+    score_percentile,
+    sma_distance,
     technical_snapshot,
+    universe_breadth,
 )
 from src.storage import ObjectStoreConfig, download_prefix, read_pointer
 
@@ -65,7 +71,11 @@ def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
     # cross-sectional statistic computed on those dates.
     close = clean_holidays(close)
     volume = volume.reindex(index=close.index)
-    scores = momentum_score(close).iloc[-1].rename("Momentum Score")
+    # The engine already produces the whole score history, so where a stock has
+    # come from over the last month and quarter costs nothing beyond reading
+    # two more rows out of it.
+    score_history = momentum_score(close)
+    scores = score_history.iloc[-1].rename("Momentum Score")
     acceleration = momentum_acceleration(close).rename("Acceleration")
     technical = technical_snapshot(close, volume)
     frame = universe.set_index("Symbol").reindex(symbols).join([scores, acceleration, technical], how="left")
@@ -77,6 +87,13 @@ def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
     frame["Rank"] = frame["Momentum Score"].rank(ascending=False, method="min", na_option="bottom").astype("Int64")
     frame["3M Sharpe"] = latest_sharpe(close, 3).reindex(frame.index)
     frame["6M Sharpe"] = latest_sharpe(close, 6).reindex(frame.index)
+    frame["Score Percentile"] = score_percentile(frame["Momentum Score"])
+    frame["Rank \u03941M"] = rank_delta(score_history, 1).reindex(frame.index)
+    frame["Rank \u03943M"] = rank_delta(score_history, 3).reindex(frame.index)
+    frame["Max DD 12M"] = max_drawdown(close, 12).reindex(frame.index)
+    frame["% 200 DMA"] = sma_distance(close, 200).reindex(frame.index)
+    # Setup depends on the columns above, so it is classified last.
+    frame["Setup"] = classify_setup(frame)
     frame["Market As Of"] = pd.Timestamp(metadata["market_as_of"])
     frame["Dataset Schema"] = metadata.get("schema_version", "1.2")
     return frame.reset_index(), datetime.now(timezone.utc)
@@ -217,8 +234,8 @@ class ScreenerStore:
 
 store = ScreenerStore()
 
-FILTERABLE = ["Rank", "Index", "Symbol", "CMP", "Momentum Score", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Industry", "Within 20% of 52W High", "Data Age Days"]
-SORTABLE = ["Rank", "Symbol", "Company Name", "Industry", "Index", "CMP", "Momentum Score", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Data Age Days"]
+FILTERABLE = ["Rank", "Index", "Symbol", "CMP", "Momentum Score", "Score Percentile", "Setup", "Rank \u03941M", "Rank \u03943M", "Max DD 12M", "% 200 DMA", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Industry", "Within 20% of 52W High", "Data Age Days"]
+SORTABLE = ["Rank", "Symbol", "Company Name", "Industry", "Index", "CMP", "Momentum Score", "Score Percentile", "Setup", "Rank \u03941M", "Rank \u03943M", "Max DD 12M", "% 200 DMA", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Data Age Days"]
 _ALLOWED_OPERATORS = {">", ">=", "<", "<=", "=", "in"}
 
 

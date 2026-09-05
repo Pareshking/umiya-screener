@@ -7,16 +7,29 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type Filter = { field: string; operator: string; value: string | number | string[] };
 type SortSpec = { field: string; direction: "asc" | "desc" };
+type Share = { count: number; pct: number };
+type Breadth = {
+  total: number;
+  above_50_ema?: Share; above_200_ema?: Share;
+  near_52w_high?: Share; positive_3m?: Share;
+  entered_top_50?: number | null; exited_top_50?: number | null;
+};
 type Metadata = {
   universe: number; universe_name: string; industries: string[]; filters: string[];
   built_at: string | null; market_as_of?: string | null;
+  breadth?: Breadth;
+  top_performers_3m?: { Symbol: string; "3M Return": number }[];
+  sectors_in_focus_3m?: { industry: string; avg_3m: number; stocks: number }[];
 };
 type QueryResult = { rows?: Row[]; total?: number; pages?: number; detail?: string };
 
 const columns = [
   { field: "Rank", label: "#", w: 46 },
   { field: "Symbol", label: "Symbol" },
+  { field: "Rank \u03941M", label: "\u03941M", w: 62 },
+  { field: "Rank \u03943M", label: "\u03943M", w: 62 },
   { field: "Momentum Score", label: "Score" },
+  { field: "Setup", label: "Setup" },
   { field: "CMP", label: "CMP" },
   { field: "1M Return", label: "1M" },
   { field: "3M Return", label: "3M" },
@@ -26,17 +39,33 @@ const columns = [
   { field: "% From 52W High", label: "52W" },
   { field: "% EMA 200", label: "EMA200" },
   { field: "Volume Ratio", label: "Vol" },
+  { field: "Max DD 12M", label: "Max DD" },
   { field: "Industry", label: "Industry" },
+];
+
+/* Preset screens. Each is just a named set of filters over columns that
+   already exist — no server-side special cases, so a preset can always be
+   taken apart and edited by hand afterwards. */
+const presets: { name: string; filters: Filter[]; sort?: SortSpec }[] = [
+  { name: "All stocks", filters: [] },
+  { name: "Top 50", filters: [{ field: "Rank", operator: "<=", value: 50 }] },
+  { name: "Leaders", filters: [{ field: "Setup", operator: "=", value: "LEADER" }] },
+  { name: "Breakouts", filters: [{ field: "Setup", operator: "=", value: "BREAKOUT" }] },
+  { name: "Climbing ranks", filters: [{ field: "Rank \u03943M", operator: ">=", value: 20 }], sort: { field: "Rank \u03943M", direction: "desc" } },
+  { name: "Near 52W high", filters: [{ field: "% From 52W High", operator: ">=", value: -5 }] },
+  { name: "High volume", filters: [{ field: "Volume Ratio", operator: ">", value: 1.5 }] },
+  { name: "Above 200 EMA", filters: [{ field: "% EMA 200", operator: ">", value: 0 }] },
 ];
 
 const filterGroups = [
   { title: "Universe", fields: ["Index", "Industry", "Symbol"] },
-  { title: "Momentum", fields: ["Momentum Score", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "Industry Relative"] },
+  { title: "Momentum", fields: ["Momentum Score", "Score Percentile", "Setup", "Rank \u03941M", "Rank \u03943M", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "Industry Relative"] },
   { title: "Trend", fields: ["CMP", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200"] },
-  { title: "Risk & participation", fields: ["Persistence 6M %", "Volume Ratio"] },
+  { title: "Risk & participation", fields: ["Persistence 6M %", "Volume Ratio", "Max DD 12M", "% 200 DMA"] },
   { title: "Data quality", fields: ["Data Age Days"] },
 ];
-const selectFields = new Set(["Index", "Industry", "Symbol"]);
+const selectFields = new Set(["Index", "Industry", "Symbol", "Setup"]);
+const setupLabels = ["LEADER", "BREAKOUT", "STRONG", "RISING", "PULLBACK", "BASING", "WATCH", "WEAK"];
 
 const defaultFilters: Filter[] = [
   { field: "% From 52W High", operator: ">=", value: -20 },
@@ -60,6 +89,16 @@ export default function Home() {
   const [visible, setVisible] = useState(columns.map((c) => c.field));
   const [draft, setDraft] = useState({ field: "Momentum Score", operator: ">", value: "" });
   const [saved, setSaved] = useState(false);
+  const [preset, setPreset] = useState<string | null>(null);
+
+  function applyPreset(name: string) {
+    const p = presets.find((x) => x.name === name);
+    if (!p) return;
+    setPreset(name);
+    setFilters(p.filters);
+    if (p.sort) setSort(p.sort);
+    setPage(1);
+  }
 
   const shown = useMemo(() => columns.filter((c) => visible.includes(c.field)), [visible]);
 
@@ -124,6 +163,7 @@ export default function Home() {
 
   function addFilter(f: Filter) {
     setFilters((cur) => [...cur.filter((x) => x.field !== f.field), f]);
+    setPreset(null);
     setPage(1);
   }
   function addDraft() {
@@ -225,6 +265,46 @@ export default function Home() {
           </div>
         </div>
 
+        {metadata?.breadth && metadata.breadth.total > 0 && (
+          <div className="pulse">
+            {([
+              ["Above 50 EMA", metadata.breadth.above_50_ema],
+              ["Above 200 EMA", metadata.breadth.above_200_ema],
+              ["Near 52W high", metadata.breadth.near_52w_high],
+              ["Positive 3M", metadata.breadth.positive_3m],
+            ] as [string, Share | undefined][]).map(([label, share]) => (
+              <div className="pulse-cell" key={label}>
+                <div className="pulse-label">{label}</div>
+                <div className="pulse-value num">{share ? `${share.pct}%` : "—"}</div>
+                <div className="pulse-sub">{share ? `${share.count} of ${metadata.breadth!.total}` : ""}</div>
+                <div className="pulse-bar"><span style={{ width: `${share?.pct ?? 0}%` }} /></div>
+              </div>
+            ))}
+            <div className="pulse-cell">
+              <div className="pulse-label">Top 50 churn</div>
+              <div className="pulse-value num">
+                <span className="pos">+{metadata.breadth.entered_top_50 ?? 0}</span>
+                <span className="faint" style={{ margin: "0 4px", fontWeight: 400 }}>/</span>
+                <span className="neg">−{metadata.breadth.exited_top_50 ?? 0}</span>
+              </div>
+              <div className="pulse-sub">entered / exited vs 1M ago</div>
+            </div>
+          </div>
+        )}
+
+        <div className="presets">
+          {presets.map((p) => (
+            <button
+              key={p.name}
+              className="preset"
+              aria-pressed={preset === p.name}
+              onClick={() => applyPreset(p.name)}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+
         {error && (
           <div className="banner">
             <strong style={{ flex: "none" }}>{degraded ? "Dataset unavailable" : "Error"}</strong>
@@ -260,7 +340,7 @@ export default function Home() {
                 <button onClick={() => { setFilters((c) => c.filter((x) => x.field !== f.field)); setPage(1); }} aria-label={`Remove ${f.field} filter`}>×</button>
               </span>
             ))}
-            <button className="chip-clear" onClick={() => { setFilters([]); setPage(1); }}>Clear all</button>
+            <button className="chip-clear" onClick={() => { setFilters([]); setPreset(null); setPage(1); }}>Clear all</button>
           </div>
         )}
 
@@ -315,12 +395,37 @@ export default function Home() {
                           if (c.field === "Industry") {
                             return <td key={c.field} className="left"><span className="tag">{v == null ? "—" : String(v)}</span></td>;
                           }
+                          if (c.field === "Setup") {
+                            const label = v == null ? "\u2014" : String(v);
+                            return (
+                              <td key={c.field}>
+                                <span className={`setup setup-${label}`}>{label}</span>
+                              </td>
+                            );
+                          }
+                          if (c.field.startsWith("Rank \u0394")) {
+                            const n = Number(v);
+                            if (!Number.isFinite(n)) return <td key={c.field} className="faint num">{"\u2014"}</td>;
+                            if (n === 0) return <td key={c.field} className="rankmove faint">{"\u00b7"}</td>;
+                            // The arrow carries the meaning; colour only reinforces it,
+                            // so the column survives greyscale and colour deficiency.
+                            return (
+                              <td key={c.field} className={`rankmove ${n > 0 ? "pos" : "neg"}`}>
+                                <span className="arrow">{n > 0 ? "\u25b2" : "\u25bc"}</span>{Math.abs(n)}
+                              </td>
+                            );
+                          }
                           if (c.field === "Momentum Score") {
                             const n = Number(v);
                             const w = Number.isFinite(n) ? Math.min(38, Math.max(0, (n + 3) / 6 * 38)) : 0;
                             return (
                               <td key={c.field} className={`num scorecell ${sign(v)}`}>
                                 {display(c.field, v)}
+                                {row["Score Percentile"] != null && (
+                                  <div className="faint" style={{ fontSize: 10.5, fontFamily: "var(--mono)" }}>
+                                    ({Number(row["Score Percentile"])})
+                                  </div>
+                                )}
                                 <span className="scorebar" style={{ width: w }} />
                               </td>
                             );
@@ -407,7 +512,12 @@ export default function Home() {
                   </div>
                   <div className="field">
                     <label>Value</label>
-                    {draft.field === "Industry" && metadata?.industries?.length ? (
+                    {draft.field === "Setup" ? (
+                      <select value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })}>
+                        <option value="">Select…</option>
+                        {setupLabels.map((l) => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    ) : draft.field === "Industry" && metadata?.industries?.length ? (
                       <select value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })}>
                         <option value="">Select…</option>
                         {metadata.industries.map((i) => <option key={i} value={i}>{i}</option>)}
@@ -461,7 +571,7 @@ export default function Home() {
             </div>
 
             <div className="drawer-foot">
-              {drawer === "filters" && <button className="btn" onClick={() => { setFilters([]); setPage(1); }}>Clear all</button>}
+              {drawer === "filters" && <button className="btn" onClick={() => { setFilters([]); setPreset(null); setPage(1); }}>Clear all</button>}
               <div className="spacer" />
               <button className="btn primary" onClick={() => setDrawer(null)}>Apply</button>
             </div>
