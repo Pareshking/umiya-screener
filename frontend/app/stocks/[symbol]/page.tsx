@@ -2,38 +2,281 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { ChartRange } from "../../../components/chart-range";
+import PriceChart, { ChartPoint, EMA_COLOURS } from "../../../components/price-chart";
+import { Cell, Row, display, num, pct, rupee, sign } from "../../../lib/format";
 
-type Cell = string | number | null;
-type Row = Record<string, Cell>;
-type ChartPoint = { date: string; adj_close: number; volume: number | null };
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-function fmt(value: Cell) { return value == null ? "—" : typeof value === "number" ? value.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : String(value); }
-function pct(value: Cell, digits = 2) { if (value == null) return "—"; const number = Number(value); return Number.isFinite(number) ? `${number > 0 ? "+" : ""}${number.toFixed(digits)}%` : "—"; }
-function tone(value: Cell) { if (value == null) return "neutral"; const number = Number(value); return number > 0 ? "positive" : number < 0 ? "negative" : "neutral"; }
+
+/* Chart windows are named in calendar terms and requested in sessions, matching
+   the engine's convention that a horizon means a period, not a row count. */
+const RANGES: { label: string; days: number }[] = [
+  { label: "3M", days: 63 },
+  { label: "6M", days: 126 },
+  { label: "1Y", days: 252 },
+  { label: "3Y", days: 756 },
+  { label: "Max", days: 2520 },
+];
+
+type ChartPayload = {
+  rows?: ChartPoint[];
+  ema_spans?: number[];
+  benchmark?: string | null;
+  market_as_of?: string;
+  detail?: string;
+};
 
 export default function StockPage() {
-  const params = useParams<{ symbol: string }>(); const symbol = String(params.symbol || "").toUpperCase();
-  const [stock, setStock] = useState<Row | null>(null), [chart, setChart] = useState<ChartPoint[]>([]), [days, setDays] = useState(252), [error, setError] = useState(""), [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  useEffect(() => { if (!symbol) return; const controller = new AbortController(); setError(""); setStock(null); fetch(`${API}/api/v1/stocks/${encodeURIComponent(symbol)}`, { signal: controller.signal }).then(async (response) => { if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "Stock unavailable."); return response.json(); }).then((data) => { if (!controller.signal.aborted) setStock(data); }).catch((e) => { if (!(e && typeof e === "object" && "name" in e && e.name === "AbortError")) setError(e instanceof Error ? e.message : "Unable to load stock."); }); return () => controller.abort(); }, [symbol]);
-  useEffect(() => { if (!symbol) return; const controller = new AbortController(); setChart([]); setHoverIndex(null); fetch(`${API}/api/v1/stocks/${encodeURIComponent(symbol)}/chart?days=${days}`, { signal: controller.signal }).then(async (response) => { if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "Chart unavailable."); return response.json(); }).then((data) => { if (!controller.signal.aborted) setChart(data.rows || []); }).catch((e) => { if (!(e && typeof e === "object" && "name" in e && e.name === "AbortError")) setError(e instanceof Error ? e.message : "Unable to load chart."); }); return () => controller.abort(); }, [symbol, days]);
-  const values = useMemo(() => chart.map((point) => Number(point.adj_close)).filter(Number.isFinite), [chart]); const min = values.length ? Math.min(...values) : 0; const max = values.length ? Math.max(...values) : 0; const points = values.length > 1 ? values.map((value, index) => `${(index / (values.length - 1)) * 100},${100 - ((value - min) / (max - min || 1)) * 88 - 6}`).join(" ") : ""; const selectedPoint = hoverIndex == null ? null : chart[hoverIndex];
-  if (error && !stock) return <main className="detailpage"><button className="back" onClick={() => window.location.href = "/"}>← Screener</button><div className="detailerror"><b>{error}</b><span>Return to the screener and try another symbol.</span></div></main>;
-  if (!stock) return <main className="detailpage"><button className="back" onClick={() => window.location.href = "/"}>← Screener</button><div className="detailloading">Loading {symbol}…</div></main>;
-  const rank = Number(stock.Rank), trendPositive = Number(stock["% EMA 200"]) > 0;
-  return <main className="detailpage">
-    <div className="detailtopbar"><button className="back" onClick={() => window.location.href = "/"}>← Back to Screener</button><span>Stock Research · {stock.Industry || "NSE universe"}</span></div>
-    <header className="detailhero"><div className="heroidentity"><div className="stockbadge">{symbol.slice(0, 2)}</div><div><div className="eyebrow">{stock.Industry || "NSE 750"} · {stock.Index || ""}</div><h1>{symbol}</h1><p>{stock["Company Name"] || "—"}</p></div></div><div className="heroactions"><button onClick={() => navigator.clipboard?.writeText(window.location.href)}>Copy link</button><button onClick={() => window.location.href = "/"}>Screen stocks</button></div></header>
-    <section className="signalbar"><div className="signalprimary"><small>RANK</small><strong>#{fmt(stock.Rank)}</strong><span>of current eligible universe</span></div><div className="signalmetric"><small>MOMENTUM SCORE</small><strong>{fmt(stock["Momentum Score"])}</strong><span>server-side composite</span></div><div className="signalmetric"><small>CMP</small><strong>₹{fmt(stock.CMP)}</strong><span>market as of {fmt(stock["Market As Of"])}</span></div><div className="signalmetric"><small>12M RETURN</small><strong className={tone(stock["12M Return"])}>{pct(stock["12M Return"])}</strong><span>long-horizon momentum</span></div><div className={`trendpill ${trendPositive ? "up" : "down"}`}><i></i>{trendPositive ? "Above 200 EMA" : "Below 200 EMA"}</div></section>
-    <section className="detailgrid">
-      <div className="detailcard chartcard featurecard"><div className="cardtitle"><div><b>Price structure</b><span>Adjusted Close · {days === 63 ? "3 months" : days === 126 ? "6 months" : days === 252 ? "1 year" : "selected range"} · {fmt(stock["Market As Of"])}</span></div><ChartRange value={days} onChange={setDays} /></div>
-        {points ? <div className="chart interactive-chart" onPointerLeave={() => setHoverIndex(null)}><div className="chartgrid"><span></span><span></span><span></span><span></span></div><svg viewBox="0 0 100 100" preserveAspectRatio="none" onPointerMove={(event) => { const rect = event.currentTarget.getBoundingClientRect(); const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)); setHoverIndex(Math.round(ratio * (chart.length - 1))); }} aria-label="Adjusted close price chart"><polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.35" vectorEffect="non-scaling-stroke" />{hoverIndex != null && <circle cx={`${(hoverIndex / Math.max(1, chart.length - 1)) * 100}`} cy={`${100 - ((Number(chart[hoverIndex]?.adj_close) - min) / (max - min || 1)) * 88 - 6}`} r="1.6" fill="currentColor" vectorEffect="non-scaling-stroke" />}</svg>{selectedPoint && <div className="charttooltip"><b>₹{fmt(selectedPoint.adj_close)}</b><span>{selectedPoint.date.slice(0, 10)}</span></div>}</div> : <div className="chartempty">No chart data available for this range.</div>}
-        <div className="chartlabels"><span>{chart[0]?.date?.slice(0, 10) || "—"}</span><b>{values.length ? `₹${values.at(-1)?.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—"}</b><span>{chart.at(-1)?.date?.slice(0, 10) || "—"}</span></div></div>
-      <div className="detailcard scorecard"><div className="cardtitle"><div><b>Momentum snapshot</b><span>Why this stock ranks where it does</span></div><strong className="rankbig">#{rank || "—"}</strong></div><div className="scoreline"><span>Momentum Score</span><strong>{fmt(stock["Momentum Score"])}</strong></div><div className="scorehint">Composite score is supplied by the prepared quantitative dataset; no frontend ranking is performed.</div></div>
-      <div className="detailcard widecard"><div className="cardtitle"><div><b>Momentum</b><span>Matched return horizons and risk-adjusted momentum</span></div></div><div className="metricgrid six"><Metric label="1M return" value={pct(stock["1M Return"])} tone={tone(stock["1M Return"])} /><Metric label="3M return" value={pct(stock["3M Return"])} tone={tone(stock["3M Return"])} /><Metric label="6M return" value={pct(stock["6M Return"])} tone={tone(stock["6M Return"])} /><Metric label="9M return" value={pct(stock["9M Return"])} tone={tone(stock["9M Return"])} /><Metric label="12M return" value={pct(stock["12M Return"])} tone={tone(stock["12M Return"])} /><Metric label="Acceleration" value={fmt(stock.Acceleration)} tone={tone(stock.Acceleration)} /></div></div>
-      <div className="detailcard widecard"><div className="cardtitle"><div><b>Risk & trend</b><span>Prepared indicators available under the current Adj Close + Volume contract</span></div></div><div className="metricgrid six"><Metric label="3M Sharpe" value={fmt(stock["3M Sharpe"])} /><Metric label="6M Sharpe" value={fmt(stock["6M Sharpe"])} /><Metric label="From 52W high" value={pct(stock["% From 52W High"])} tone={tone(stock["% From 52W High"])} /><Metric label="EMA 200" value={pct(stock["% EMA 200"])} tone={tone(stock["% EMA 200"])} /><Metric label="Volume ratio" value={stock["Volume Ratio"] == null ? "—" : `${fmt(stock["Volume Ratio"])}x`} /></div></div>
-      <div className="detailcard widecard"><div className="cardtitle"><div><b>Relative & data context</b><span>Classification, industry-relative strength and dataset provenance</span></div></div><div className="contextgrid"><Metric label="Industry" value={fmt(stock.Industry)} /><Metric label="Index" value={fmt(stock.Index)} /><Metric label="Industry relative" value={fmt(stock["Industry Relative"])} tone={tone(stock["Industry Relative"])} /><Metric label="Persistence 6M" value={pct(stock["Persistence 6M %"])} tone={tone(stock["Persistence 6M %"])} /><Metric label="Data age" value={stock["Data Age Days"] == null ? "—" : `${fmt(stock["Data Age Days"])} days`} /><Metric label="Market as of" value={fmt(stock["Market As Of"])} /></div></div>
-    </section><footer className="detailfooter"><span>Umiya Screener V2 · quantitative research interface</span><span>Prepared server-side · Adj Close + Volume data contract</span></footer>
-  </main>;
+  const params = useParams<{ symbol: string }>();
+  const symbol = decodeURIComponent(String(params?.symbol ?? "")).toUpperCase();
+
+  const [stock, setStock] = useState<Row | null>(null);
+  const [chart, setChart] = useState<ChartPayload>({});
+  const [days, setDays] = useState(252);
+  const [error, setError] = useState("");
+  const [peers, setPeers] = useState<Row[]>([]);
+  const [activeEmas, setActiveEmas] = useState<number[]>([50, 200]);
+  const [showVolume, setShowVolume] = useState(true);
+  const [showRs, setShowRs] = useState(true);
+
+  useEffect(() => {
+    if (!symbol) return;
+    const c = new AbortController();
+    setError(""); setStock(null);
+    fetch(`${API}/api/v1/stocks/${encodeURIComponent(symbol)}`, { signal: c.signal })
+      .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Stock unavailable."); return r.json(); })
+      .then((d) => { if (!c.signal.aborted) setStock(d); })
+      .catch((e) => { if (!(e?.name === "AbortError")) setError(e instanceof Error ? e.message : "Unable to load stock."); });
+    return () => c.abort();
+  }, [symbol]);
+
+  useEffect(() => {
+    if (!symbol) return;
+    const c = new AbortController();
+    setChart({});
+    fetch(`${API}/api/v1/stocks/${encodeURIComponent(symbol)}/chart?days=${days}`, { signal: c.signal })
+      .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Chart unavailable."); return r.json(); })
+      .then((d) => { if (!c.signal.aborted) setChart(d); })
+      .catch((e) => { if (!(e?.name === "AbortError")) setError(e instanceof Error ? e.message : "Unable to load chart."); });
+    return () => c.abort();
+  }, [symbol, days]);
+
+  // Peers in the same industry — the comparison a ranked screener implies.
+  useEffect(() => {
+    const industry = stock?.Industry;
+    if (!industry) return;
+    const c = new AbortController();
+    fetch(`${API}/api/v1/screener/query`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, signal: c.signal,
+      body: JSON.stringify({
+        filters: [{ field: "Industry", operator: "=", value: String(industry) }],
+        sort: { field: "Rank", direction: "asc" }, search: null, page: 1, page_size: 8,
+      }),
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d && !c.signal.aborted) setPeers(d.rows || []); })
+      .catch(() => { /* peers are supplementary; their absence is not an error */ });
+    return () => c.abort();
+  }, [stock?.Industry]);
+
+  const spans = chart.ema_spans ?? [];
+  const rows = chart.rows ?? [];
+
+  const kpis = useMemo(() => stock ? [
+    { label: "Momentum score", value: num(stock["Momentum Score"], 2), cell: stock["Momentum Score"], sub: `rank ${stock.Rank ?? "—"}` },
+    { label: "12M return", value: pct(stock["12M Return"]), cell: stock["12M Return"], sub: "calendar year" },
+    { label: "6M Sharpe", value: num(stock["6M Sharpe"], 2), cell: stock["6M Sharpe"], sub: "risk-adjusted" },
+    { label: "Industry relative", value: num(stock["Industry Relative"], 2), cell: stock["Industry Relative"], sub: "vs sector mean" },
+  ] : [], [stock]);
+
+  if (error) {
+    return (
+      <main className="shell">
+        <div className="banner" style={{ marginTop: 28 }}><strong>Unavailable</strong><span>{error}</span></div>
+        <a className="btn" href="/">← Back to screener</a>
+      </main>
+    );
+  }
+
+  return (
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <a className="mark" href="/">
+            <div className="mark-glyph">U</div>
+            <div><div className="mark-name">Umiya Screener</div><div className="mark-sub">stock detail</div></div>
+          </a>
+          <div className="spacer" />
+          {chart.market_as_of && <div className="datastamp"><span className="dot" />as of {chart.market_as_of}</div>}
+          <a className="btn" href="/">Screener</a>
+        </div>
+      </header>
+
+      <main className="shell">
+        <div className="stockhead">
+          <div>
+            <h1>{symbol}</h1>
+            <div className="co">{String(stock?.["Company Name"] ?? "")}</div>
+            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+              {stock?.Industry && <span className="tag">{String(stock.Industry)}</span>}
+              {stock?.Index && <span className="tag">{String(stock.Index)}</span>}
+            </div>
+          </div>
+          <div className="spacer" />
+          <div className="price">
+            <div className="price-value num">{rupee(stock?.CMP ?? null)}</div>
+            <div className={`num ${sign(stock?.["1M Return"] ?? null)}`} style={{ fontSize: 13 }}>
+              {pct(stock?.["1M Return"] ?? null)} <span className="faint">1M</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="statrow">
+          {kpis.map((k) => (
+            <div className="stat" key={k.label}>
+              <div className="stat-label">{k.label}</div>
+              <div className={`stat-value num ${sign(k.cell as Cell)}`}>{k.value}</div>
+              <div className="stat-sub">{k.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid2">
+          <div className="panel">
+            <div className="panel-head" style={{ flexWrap: "wrap", rowGap: 8 }}>
+              <span className="panel-title">Price structure</span>
+              <span className="panel-note">Adjusted Close</span>
+              <div className="spacer" />
+              <div className="segmented">
+                {RANGES.map((r) => (
+                  <button key={r.label} aria-pressed={days === r.days} onClick={() => setDays(r.days)}>{r.label}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel-head" style={{ background: "transparent", borderBottom: "1px solid var(--line)", flexWrap: "wrap", rowGap: 8 }}>
+              <span className="panel-note">Overlays</span>
+              <div className="segmented">
+                {spans.map((s) => (
+                  <button
+                    key={s}
+                    aria-pressed={activeEmas.includes(s)}
+                    onClick={() => setActiveEmas((cur) => cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s].sort((a, b) => a - b))}
+                  >
+                    {s} EMA
+                  </button>
+                ))}
+              </div>
+              <div className="segmented">
+                <button aria-pressed={showVolume} onClick={() => setShowVolume((v) => !v)}>Volume</button>
+                {chart.benchmark && <button aria-pressed={showRs} onClick={() => setShowRs((v) => !v)}>RS</button>}
+              </div>
+            </div>
+
+            <div className="chartbox">
+              {rows.length ? (
+                <PriceChart
+                  rows={rows}
+                  emaSpans={spans}
+                  benchmark={chart.benchmark ?? null}
+                  activeEmas={activeEmas.filter((s) => spans.includes(s))}
+                  showVolume={showVolume}
+                  showRs={showRs}
+                />
+              ) : (
+                <div style={{ height: 330, display: "grid", placeItems: "center" }}>
+                  <div className="skel" style={{ width: "82%", height: 200, borderRadius: 8 }} />
+                </div>
+              )}
+            </div>
+
+            {/* Direct identity for every line: the overlays are never told apart
+                by colour alone. */}
+            <div className="chartlegend">
+              <span className="legend-item"><span className="legend-swatch" style={{ background: "var(--ink)" }} />Adj Close</span>
+              {activeEmas.filter((s) => spans.includes(s)).map((s) => (
+                <span className="legend-item" key={s}>
+                  <span className="legend-swatch" style={{ background: EMA_COLOURS[s] }} />{s} EMA
+                </span>
+              ))}
+              {showVolume && <span className="legend-item"><span className="legend-swatch" style={{ background: "var(--ink-faint)" }} />Volume</span>}
+              {chart.benchmark && showRs && (
+                <span className="legend-item">
+                  <span className="legend-swatch" style={{ background: "var(--rs)" }} />
+                  RS vs {chart.benchmark === "^NSEI" ? "NIFTY 50" : chart.benchmark}
+                </span>
+              )}
+              {!chart.benchmark && <span className="legend-item faint">RS unavailable — no benchmark in this dataset</span>}
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: 12 }}>
+            <div className="panel">
+              <div className="panel-head"><span className="panel-title">Key levels</span></div>
+              <div className="levels">
+                {[
+                  ["52W high", rupee(stock?.["52W High"] ?? null)],
+                  ["From high", pct(stock?.["% From 52W High"] ?? null)],
+                  ["EMA 50", pct(stock?.["% EMA 50"] ?? null)],
+                  ["EMA 100", pct(stock?.["% EMA 100"] ?? null)],
+                  ["EMA 200", pct(stock?.["% EMA 200"] ?? null)],
+                  ["Volume ratio", stock?.["Volume Ratio"] != null ? `${num(stock["Volume Ratio"], 2)}×` : "—"],
+                ].map(([label, value]) => (
+                  <div className="level" key={label}>
+                    <div className="level-label">{label}</div>
+                    <div className="level-value num">{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-head"><span className="panel-title">Return profile</span><span className="panel-note">calendar horizons</span></div>
+              <div className="tablewrap">
+                <table className="grid">
+                  <tbody>
+                    {["1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "Persistence 6M %", "Acceleration"].map((f) => (
+                      <tr key={f}>
+                        <td className="left muted" style={{ fontSize: 12 }}>{f.replace(" Return", "").replace(" %", "")}</td>
+                        <td className={`num ${sign(stock?.[f] ?? null)}`}>{stock ? display(f, stock[f]) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {peers.length > 0 && (
+              <div className="panel">
+                <div className="panel-head"><span className="panel-title">Industry peers</span><span className="panel-note">{String(stock?.Industry ?? "")}</span></div>
+                <div className="tablewrap">
+                  <table className="grid">
+                    <thead><tr><th className="left">Symbol</th><th>Score</th><th>3M</th></tr></thead>
+                    <tbody>
+                      {peers.map((p) => {
+                        const self = String(p.Symbol) === symbol;
+                        return (
+                          <tr key={String(p.Symbol)} style={self ? { background: "var(--accent-soft)" } : undefined}>
+                            <td className="left">
+                              <a className="sym" href={`/stocks/${encodeURIComponent(String(p.Symbol))}`}>{String(p.Symbol)}</a>
+                            </td>
+                            <td className={`num ${sign(p["Momentum Score"])}`}>{num(p["Momentum Score"], 2)}</td>
+                            <td className={`num ${sign(p["3M Return"])}`}>{pct(p["3M Return"])}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <p className="faint" style={{ fontSize: 11.5, marginTop: 14 }}>
+          Adjusted Close and Volume only — the canonical dataset carries no High/Low, so this is a line chart rather than candles.
+          EMAs are computed on full history and then windowed, so a short view still shows the true long EMA.
+        </p>
+      </main>
+    </>
+  );
 }
-function Metric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: string }) { return <div className="metric"><small>{label}</small><b className={tone}>{value}</b></div>; }

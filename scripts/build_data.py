@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.config import MIN_HISTORY, MAX_DATA_AGE_DAYS
-from src.data import HISTORY_YEARS, PRICE_FIELDS, eligible_symbols, fetch_prices, latest_market_date, load_universe
+from src.config import BENCHMARK, MIN_HISTORY, MAX_DATA_AGE_DAYS
+from src.data import HISTORY_YEARS, PRICE_FIELDS, eligible_symbols, fetch_benchmark, fetch_prices, latest_market_date, load_universe
 
 OUTPUT_ROOT = ROOT / "data_cache" / "price_history"
 MIN_UNIVERSE = 600
@@ -31,6 +31,14 @@ def build() -> tuple[Path, dict]:
     volume = data["volume"].reindex(columns=symbols)
     if adj_close.empty or volume.empty:
         raise RuntimeError("Yahoo returned an empty canonical dataset")
+
+    # The benchmark drives relative strength on the stock page. A failure here
+    # must not sink the whole dataset: RS is one panel, the screener is the app.
+    try:
+        benchmark = fetch_benchmark()
+    except Exception as exc:  # pragma: no cover - network dependent
+        print(f"WARNING: benchmark unavailable, relative strength will be omitted: {exc}")
+        benchmark = None
 
     as_of = latest_market_date(adj_close)
     eligibility = eligible_symbols(adj_close, volume=volume, as_of=as_of)
@@ -55,11 +63,14 @@ def build() -> tuple[Path, dict]:
     try:
         adj_close.to_parquet(candidate / "adj_close.parquet")
         volume.to_parquet(candidate / "volume.parquet")
+        if benchmark is not None:
+            benchmark.to_frame(name="close").to_parquet(candidate / "benchmark.parquet")
         eligibility.to_parquet(candidate / "eligibility.parquet", index=False)
         universe.to_parquet(candidate / "universe.parquet", index=False)
         metadata = {
             "schema_version": "1.2",
             "data_contract": ["adj_close", "volume"],
+            "benchmark": BENCHMARK if benchmark is not None else None,
             "history_years": HISTORY_YEARS,
             "universe": "NIFTY 750",
             "universe_symbols": len(symbols),

@@ -7,10 +7,12 @@ import os
 import threading
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.quant import CHART_EMA_SPANS, chart_overlays, relative_strength
 from src.storage import ObjectStoreConfig, download_prefix, read_pointer
 from .operational import OperationalMiddleware
 from .schemas import ScreenerQuery
@@ -103,6 +105,26 @@ def _ensure_price_dataset_locked() -> tuple[Path, dict]:
         raise HTTPException(status_code=503, detail="Price dataset is unavailable.") from exc
 
 
+def _load_benchmark(dataset: Path) -> pd.Series | None:
+    """The benchmark close series, when the published dataset carries one.
+
+    Older datasets predate the benchmark, so its absence is normal and simply
+    means the RS pane is omitted rather than the chart failing.
+    """
+    path = dataset / "benchmark.parquet"
+    if not path.is_file():
+        return None
+    try:
+        frame = pd.read_parquet(path)
+    except Exception:
+        return None
+    if frame.empty or "close" not in frame.columns:
+        return None
+    series = frame["close"]
+    series.index = pd.to_datetime(series.index)
+    return series.sort_index()
+
+
 def _load_chart_frame(dataset: Path, symbol: str) -> pd.DataFrame:
     global _CHART_CACHE_DATASET
     dataset_key = str(dataset.resolve())
@@ -118,7 +140,18 @@ def _load_chart_frame(dataset: Path, symbol: str) -> pd.DataFrame:
         volume = pd.read_parquet(dataset / "volume.parquet", columns=[symbol])
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Chart data unavailable for {symbol}.") from exc
-    chart = pd.DataFrame({"date": close.index, "adj_close": close[symbol].values, "volume": volume[symbol].reindex(close.index).values}).dropna(subset=["adj_close"])
+    series = close[symbol]
+    frame = {"date": close.index, "adj_close": series.values, "volume": volume[symbol].reindex(close.index).values}
+    # Overlays are computed across the whole history and sliced afterwards, so a
+    # short window still shows the true 200 EMA rather than one restarted at the
+    # left edge of the view.
+    for span, values in chart_overlays(series).items():
+        frame[f"ema_{span}"] = values.reindex(close.index).values
+    benchmark = _load_benchmark(dataset)
+    if benchmark is not None:
+        rs = relative_strength(series, benchmark)
+        frame["rs"] = rs.reindex(close.index).values if not rs.empty else np.nan
+    chart = pd.DataFrame(frame).dropna(subset=["adj_close"])
     with _CHART_CACHE_LOCK:
         if _CHART_CACHE_DATASET == dataset_key:
             _CHART_CACHE[symbol] = chart
@@ -254,4 +287,11 @@ def stock_chart(response: Response, symbol: str, days: int = Query(252, ge=20, l
     if chart.empty:
         raise HTTPException(status_code=404, detail=f"Chart data unavailable for {symbol}.")
     response.headers["Cache-Control"] = DATASET_CACHE_CONTROL
-    return {"symbol": symbol, "market_as_of": metadata.get("market_as_of"), "data_contract": ["adj_close", "volume"], "rows": chart.where(pd.notna(chart), None).to_dict(orient="records")}
+    return {
+        "symbol": symbol,
+        "market_as_of": metadata.get("market_as_of"),
+        "data_contract": ["adj_close", "volume"],
+        "ema_spans": [span for span in CHART_EMA_SPANS if f"ema_{span}" in chart.columns and chart[f"ema_{span}"].notna().any()],
+        "benchmark": metadata.get("benchmark") if "rs" in chart.columns and chart["rs"].notna().any() else None,
+        "rows": chart.where(pd.notna(chart), None).to_dict(orient="records"),
+    }
