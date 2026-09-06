@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from src.config import METRICS_CACHE_PATH, METRICS_CACHE_TTL_HOURS
-from src.fundamentals import SOURCE_REPO, attach as attach_fundamentals, fetch_fundamentals
 from src.quant import (
     classify_setup,
     clean_holidays,
@@ -95,23 +94,6 @@ def build_metric_frame() -> tuple[pd.DataFrame, datetime]:
     frame["% 200 DMA"] = sma_distance(close, 200).reindex(frame.index)
     # Setup depends on the columns above, so it is classified last.
     frame["Setup"] = classify_setup(frame)
-    # Fundamentals, delivery data and NSE sector classification come from a
-    # third party we do not control (see src/fundamentals.py). Its absence is
-    # never fatal and never silent: the columns are always created, and the
-    # status travels with the dataset as constant columns -- the same pattern
-    # "Market As Of" already uses -- so the API can tell the UI exactly why
-    # they are blank.
-    fundamentals = fetch_fundamentals()
-    frame = attach_fundamentals(frame, fundamentals)
-    if not fundamentals.available:
-        print(f"WARNING: fundamentals unavailable from {SOURCE_REPO}: {fundamentals.reason}")
-    frame["Fundamentals Available"] = bool(fundamentals.available)
-    frame["Fundamentals Source"] = SOURCE_REPO
-    frame["Fundamentals As Of"] = (
-        pd.Timestamp(fundamentals.source_date) if fundamentals.source_date else pd.NaT
-    )
-    frame["Fundamentals Reason"] = fundamentals.reason
-
     frame["Market As Of"] = pd.Timestamp(metadata["market_as_of"])
     frame["Dataset Schema"] = metadata.get("schema_version", "1.2")
     return frame.reset_index(), datetime.now(timezone.utc)
@@ -279,8 +261,8 @@ class ScreenerStore:
 
 store = ScreenerStore()
 
-FILTERABLE = ["Rank", "Index", "Symbol", "CMP", "Momentum Score", "Score Percentile", "Setup", "Rank \u03941M", "Rank \u03943M", "Max DD 12M", "% 200 DMA", "Market Cap", "Promoter Holding %", "Delivery %", "NSE Sector", "Basic Industry", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Industry", "Within 20% of 52W High", "Data Age Days"]
-SORTABLE = ["Rank", "Symbol", "Company Name", "Industry", "Index", "CMP", "Momentum Score", "Score Percentile", "Setup", "Rank \u03941M", "Rank \u03943M", "Max DD 12M", "% 200 DMA", "Market Cap", "Promoter Holding %", "Delivery %", "NSE Sector", "Basic Industry", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Data Age Days"]
+FILTERABLE = ["Rank", "Index", "Symbol", "CMP", "Momentum Score", "Score Percentile", "Setup", "Rank \u03941M", "Rank \u03943M", "Max DD 12M", "% 200 DMA", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Industry", "Within 20% of 52W High", "Data Age Days"]
+SORTABLE = ["Rank", "Symbol", "Company Name", "Industry", "Index", "CMP", "Momentum Score", "Score Percentile", "Setup", "Rank \u03941M", "Rank \u03943M", "Max DD 12M", "% 200 DMA", "Industry Relative", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200", "Persistence 6M %", "Volume Ratio", "Data Age Days"]
 _ALLOWED_OPERATORS = {">", ">=", "<", "<=", "=", "in"}
 
 

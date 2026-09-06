@@ -4,11 +4,8 @@ on:
   schedule:
     # 01:30 UTC = 07:00 IST, every day.
     #
-    # Morning-after, not same-evening. The fundamentals upstream publishes the
-    # trading day's data that evening IST -- usually around 17:40 but observed
-    # as late as 23:12 -- so a 19:00 IST run raced it and picked up the previous
-    # day's numbers about 8% of the time. Running the next morning clears every
-    # push in the observed history with 7.8h to spare on the worst case.
+    # Morning-after, not same-evening: the run reports on the previous
+    # session, which closed at 15:30 IST, so it reads fully settled data.
     #
     # EVERY day, not weekdays. A Mon-Fri schedule left a 72h gap across the
     # weekend against a metrics TTL of 36h, so the API served 503 from Saturday
