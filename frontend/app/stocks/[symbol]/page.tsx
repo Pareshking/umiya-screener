@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import PriceChart, { ChartPoint, EMA_COLOURS } from "../../../components/price-chart";
-import { Cell, Row, crore, display, num, pct, rupee, sign } from "../../../lib/format";
+import { Cell, Row, display, num, pct, rupee, sign } from "../../../lib/format";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -26,9 +26,7 @@ type ChartPayload = {
 };
 
 /* Most of what a stock page owes the reader is label/value pairs, so they get
-   one component rather than six hand-rolled tables. `fundamental` marks rows
-   sourced from the third party, so the whole panel can state its provenance
-   and disappear cleanly when that source is unavailable. */
+   one component rather than several hand-rolled tables. */
 type SpecRow = [label: string, value: string, tone?: Cell];
 
 /** 1st, 2nd, 3rd, 4th … — "32th percentile" reads as a typo, because it is. */
@@ -118,8 +116,6 @@ export default function StockPage() {
   const spans = chart.ema_spans ?? [];
   const rows = chart.rows ?? [];
 
-  const fundamentalsOk = stock?.["Fundamentals Available"] !== false;
-
   function moved(field: string): string {
     const n = Number(stock?.[field]);
     if (!Number.isFinite(n)) return "—";
@@ -139,37 +135,15 @@ export default function StockPage() {
     { label: "Max drawdown", value: pct(stock["Max DD 12M"]), cell: null, sub: "worst 12M fall" },
   ] : [], [stock]);
 
-  // Panels sourced from the third party. Each is omitted entirely when that
-  // source is unavailable rather than rendered as a column of dashes.
-  const valuation: SpecRow[] = stock && fundamentalsOk ? [
-    ["Market cap", crore(stock["Market Cap"])],
-  ] : [];
-
-  // P/E, price-to-book, dividend yield, ROE and the quarterly growth figures
-  // are deliberately absent. The upstream computes its valuation ratios against
-  // a stale price -- see src/fundamentals.py for the reconciliation against
-  // Screener.in -- and the error is largest on exactly the risen stocks this
-  // screener ranks highest. They return when the source recomputes them.
-  const growth: SpecRow[] = [];
-
   const participation: SpecRow[] = stock ? [
-    ...(fundamentalsOk ? [
-      ["Promoter holding", stock["Promoter Holding %"] != null ? `${num(stock["Promoter Holding %"], 2)}%` : "—"] as SpecRow,
-      ["Public holding", stock["Public Holding %"] != null ? `${num(stock["Public Holding %"], 2)}%` : "—"] as SpecRow,
-      ["Delivery", stock["Delivery %"] != null ? `${num(stock["Delivery %"], 1)}%` : "—"] as SpecRow,
-      ["Delivery volume", stock["Delivery Volume"] != null ? num(stock["Delivery Volume"], 0) : "—"] as SpecRow,
-    ] : []),
-    ["Volume", stock.Volume != null ? num(stock.Volume, 0) : "—"] as SpecRow,
-    ["Volume vs 20-day", stock["Volume Ratio"] != null ? `${num(stock["Volume Ratio"], 2)}×` : "—"] as SpecRow,
+    ["Volume", stock.Volume != null ? num(stock.Volume, 0) : "—"],
+    ["Volume vs 20-day", stock["Volume Ratio"] != null ? `${num(stock["Volume Ratio"], 2)}×` : "—"],
   ] : [];
 
   const provenance: SpecRow[] = stock ? [
     ["Market as of", String(stock["Market As Of"] ?? "—").slice(0, 10)],
     ["Price age", stock["Data Age Days"] != null ? `${stock["Data Age Days"]} days` : "—"],
     ["History", stock["History Days"] != null ? `${stock["History Days"]} sessions` : "—"],
-    ...(fundamentalsOk && stock.ISIN ? [["ISIN", String(stock.ISIN)] as SpecRow] : []),
-    ...(fundamentalsOk && stock["Fundamentals As Of"]
-      ? [["Fundamentals as of", String(stock["Fundamentals As Of"]).slice(0, 10)] as SpecRow] : []),
   ] : [];
 
   if (error) {
@@ -204,8 +178,7 @@ export default function StockPage() {
               {stock?.Setup && stock.Setup !== "—" && (
                 <span className={`setup setup-${String(stock.Setup)}`}>{String(stock.Setup)}</span>
               )}
-              {stock?.["NSE Sector"] && <span className="tag">{String(stock["NSE Sector"])}</span>}
-              {stock?.["Basic Industry"] && <span className="tag">{String(stock["Basic Industry"])}</span>}
+              {stock?.Industry && <span className="tag">{String(stock.Industry)}</span>}
               {stock?.Index && <span className="tag">{String(stock.Index)}</span>}
             </div>
           </div>
@@ -215,26 +188,8 @@ export default function StockPage() {
             <div className={`num ${sign(stock?.["1M Return"] ?? null)}`} style={{ fontSize: 13 }}>
               {pct(stock?.["1M Return"] ?? null)} <span className="faint">1M</span>
             </div>
-            {stock?.["Market Cap"] != null && (
-              <div className="faint num" style={{ fontSize: 12, marginTop: 2 }}>{crore(stock["Market Cap"])}</div>
-            )}
           </div>
         </div>
-
-        {stock && !fundamentalsOk && (
-          <div className="notice">
-            <strong>Fundamentals unavailable</strong>
-            <span>
-              Valuation, growth, ownership and delivery come from{" "}
-              <code>{String(stock["Fundamentals Source"] ?? "a third-party source")}</code>, which is not
-              under our control. Those panels are omitted rather than shown blank. Price, momentum and
-              everything else on this page is computed from our own data and is unaffected.
-              {stock["Fundamentals Reason"] ? (
-                <><br /><span className="notice-reason">Reason: {String(stock["Fundamentals Reason"])}</span></>
-              ) : null}
-            </span>
-          </div>
-        )}
 
         <div className="statrow">
           {kpis.map((k) => (
@@ -313,21 +268,6 @@ export default function StockPage() {
               )}
               {!chart.benchmark && <span className="legend-item faint">RS unavailable — no benchmark in this dataset</span>}
             </div>
-            {(valuation.length > 0 || growth.length > 0) && (
-              <div className="sidebyside">
-                    <Specs title="Size" note="third-party" rows={valuation} />
-                <div className="panel">
-                  <div className="panel-head"><span className="panel-title">Valuation ratios</span><span className="panel-note">withheld</span></div>
-                  <div style={{ padding: "12px 14px", fontSize: 12.5, color: "var(--ink-secondary)", lineHeight: 1.55 }}>
-                    P/E, price-to-book and dividend yield are not shown. The source computes them
-                    against a <strong>stale price</strong> while publishing a current close, so they
-                    understate P/E by up to 38% — and by most on the stocks that have risen most,
-                    which is precisely what this screener ranks highest. Quarterly growth and ROE
-                    do not reconcile either. They return when the source recomputes them.
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           <div style={{ display: "grid", gap: 12 }}>
@@ -366,7 +306,7 @@ export default function StockPage() {
               </div>
             </div>
 
-            <Specs title="Ownership & participation" rows={participation} />
+            <Specs title="Volume & participation" rows={participation} />
 
             {peers.length > 0 && (
               <div className="panel">
@@ -399,13 +339,6 @@ export default function StockPage() {
         <p className="faint" style={{ fontSize: 11.5, marginTop: 14 }}>
           Adjusted Close and Volume only — the canonical dataset carries no High/Low, so this is a line chart rather than candles.
           EMAs are computed on full history and then windowed, so a short view still shows the true long EMA.
-          {stock && fundamentalsOk && (
-            <>
-              {" "}Valuation, growth, ownership and delivery via{" "}
-              <code>{String(stock["Fundamentals Source"])}</code>
-              {stock["Fundamentals As Of"] ? ` as of ${String(stock["Fundamentals As Of"]).slice(0, 10)}` : ""}.
-            </>
-          )}
         </p>
       </main>
     </>

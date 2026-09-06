@@ -134,106 +134,53 @@ Validate
 
 This policy is required for production reliability.
 
-## Third-party fundamentals (added 2026-09-05)
+## Third-party fundamentals: added 2026-09-05, removed 2026-09-06
 
-Fundamentals, delivery data and NSE sector classification are joined from
-`jadeja-rajdeep/nse-momentum-screener`. This section records what that source
-actually is, because it is not a vendor feed and should not be mistaken for one.
+Fundamentals, delivery data and NSE sector classification were briefly joined
+from a third-party GitHub repository. They have been removed entirely. This
+section records why, so the decision is not quietly revisited.
 
-### What it is
+### What the source was
 
-The repo publishes a static site. Its `m.json` is a **PHPMyAdmin export of a
-private MySQL database** (`marketwatcher_nse_v4`, table `m`), committed roughly
-once per trading day. 2,777 rows, 102 columns, covering 100% of our NIFTY 750
-universe at the time of integration.
+A public repo publishing a static site, whose `m.json` was a PHPMyAdmin export
+of a private MySQL database, committed once per trading day. Not a pipeline:
+the code producing the numbers was not in the repo, so they could not be
+reproduced, audited or repaired. It carried no licence.
 
-### What it is not
+### Why it was removed
 
-- **It is not a pipeline.** The code that produces the data is not in the repo,
-  so we cannot reproduce, audit, or repair it. We consume an output.
-- **It is not licensed.** The repo carries no licence file, so no usage rights
-  are granted by default. Using it beyond personal research is a decision for
-  the repository owner to be asked about, not one this code makes.
-- **It is not guaranteed.** It is one person's repository and can be made
-  private or deleted without notice.
+Its valuation ratios were computed against a **stale price** while the same row
+published a current close. Verified against an independent source for WELCORP
+on 2026-09-04 (close Rs 2,590.60): a single factor of 1.623 carried its P/E
+18.23 to the true 29.59, its price-to-book 4.60 to 7.46, and — dividing,
+because price sits in the denominator — its yield 0.31% to 0.19%. One stale
+price numerator explained all three. The implied price of ~Rs 1,596 was
+confirmed independently across seven peers, agreeing to the rupee on two.
 
-### Where the upstream data appears to originate
+Staleness ranged 4%–38%, tracking how far each stock had run. **This is a
+momentum screener**: it surfaces the stocks that have risen most, which are
+exactly the stocks whose P/E was understated most. WELCORP ranked #1 while
+showing a P/E of 18 against a real 30 — the biggest winners looked cheapest,
+and the error grew with the very thing the ranking selects for.
 
-Inferred from field naming, not from documentation:
+The quarterly growth figures failed separately: no pairing of the independent
+source's own quarterly results reproduced the reported -55% EPS or -14% sales.
+Debt did not reconcile with debt-to-equity either.
 
-| Fields | Likely origin |
-|---|---|
-| ISIN; Macro Economic Sector / Sector / Industry / Basic Industry | NSE's own four-level industry classification |
-| No of trades, Net Turnover, Delivery Volume, Delivery % | NSE bhavcopy and security-wise delivery files |
-| Prom Hold %, Emp Trust %, Public Hold % | NSE shareholding pattern |
-| PE, ROE, EPS/Sales growth, Book Value, Yield, Debt, Cash Flow | An unidentified fundamentals provider |
+Market cap, shareholding and the close price did reconcile exactly. But a
+source that is wrong on valuation and growth, cannot be audited, and cannot be
+repaired from what it publishes is not a foundation to build on, so the whole
+dependency was dropped rather than partially trusted.
 
-Most of it is therefore reproducible from NSE's own public files if we ever
-need to remove the dependency. The valuation and earnings fields are the part
-that would need a real provider.
+### What the screener uses now
 
-### Rules this imposes
+Only the canonical Adjusted Close + Volume dataset the project controls end to
+end. Every number on the site is computed from it. There is no third-party
+data in the product.
 
-1. **Prices never come from here.** Adjusted Close and Volume drive every
-   ranking metric; a second, unreproducible price vendor would make the engine
-   unauditable. Only fields we cannot compute ourselves are consumed.
-2. **Failure is explicit, never silent.** `src/fundamentals.py` returns a
-   status, not an exception. A missing, private, malformed or stale upstream
-   publishes the dataset without fundamentals, and the API states
-   `fundamentals.available = false` with the reason. The UI shows a standing
-   notice and **hides** the affected columns rather than showing them blank —
-   an empty PE column reads as "these stocks have no PE" rather than "we could
-   not read the source".
-3. **Staleness counts as unavailable.** A repo that stops updating still serves
-   HTTP 200 with old numbers. If the dump's own `Date` column is more than
-   `MAX_SOURCE_AGE_DAYS` (7) behind, it is treated as abandoned.
-4. **Attribution is shown** in the footer whenever the data is in use.
+### If fundamentals are wanted again
 
-
-### Reconciliation against an independent source (2026-09-06)
-
-Checked field by field against Screener.in for WELCORP on 2026-09-04
-(close Rs 2,590.60). Our pipeline reproduces the upstream exactly; the
-disagreement is between the upstream and reality.
-
-| Field | Upstream | Screener.in | Verdict |
-|---|---:|---:|---|
-| Close | 2,590.60 | 2,590.60 | exact |
-| Market cap | Rs 68,338 Cr | Rs 68,338 Cr | exact |
-| Promoter holding | 49.73% | 49.73% | exact |
-| P/E | 18.23 | 29.59 | **-38%** |
-| Price/Book | 4.60 | 7.46 | **-38%** |
-| Dividend yield | 0.31% | 0.19% | **+63%** |
-| ROE | 17.6% | 19.4% | -9% |
-
-**The valuation ratios are computed against a stale price.** A single
-correction factor of 1.623 carries P/E 18.23 to 29.59 and price-to-book 4.60
-to 7.47, and — dividing, because price sits in its denominator — yield 0.31 to
-0.19. One stale price numerator explains all three; a different accounting
-basis could not.
-
-The implied price of ~Rs 1,596 is confirmed independently: across seven peers
-from Screener's own comparison table, the price implied by P/E and the price
-implied by P/B agree within a few percent, and to the rupee on WELCORP (1596
-vs 1597) and APLAPOLLO (1819 vs 1819). Staleness ranged 4%-38%, tracking how
-far each stock had run.
-
-**Why that is dangerous here.** This is a momentum screener. It surfaces the
-stocks that have risen most, which are exactly the stocks whose P/E is
-understated most. WELCORP ranked #1 while showing a P/E of 18 against a real
-30 — the biggest winners look the cheapest.
-
-Separately, no pairing of Screener's quarterly results reproduces the reported
--55% EPS or -14% sales growth, and Debt (17.0) does not reconcile with a
-debt-to-equity of 0.26.
-
-**Action taken.** P/E, price-to-book, dividend yield, ROE, debt and the
-quarterly growth figures are no longer consumed (`UNRELIABLE_FIELDS` in
-`src/fundamentals.py`). They cannot be repaired from the dump: recovering the
-stale price needs a per-share figure it does not carry. Market cap,
-shareholding, delivery and the NSE classification reconciled and are still
-served.
-
-**The fix belongs upstream.** Recomputing the ratios against the same close
-the dump already publishes would resolve it, after which re-enabling here is a
-one-line change.
+Take them from a source whose figures can be reconciled, and reconcile them on
+every build rather than once. Most of what was being consumed — sector
+classification, delivery volumes, shareholding — is published by NSE directly
+and is reproducible from its own files.

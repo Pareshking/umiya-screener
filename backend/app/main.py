@@ -245,23 +245,7 @@ def metadata(response: Response) -> dict:
                 .rename(columns={"Industry": "industry", "mean": "avg_3m", "count": "stocks"})
                 .to_dict(orient="records")
             )
-    # The fundamentals status is stated plainly rather than inferred from blank
-    # columns, so the interface can say "unavailable, because X" instead of
-    # rendering dashes that look like genuinely missing values.
-    fundamentals_status: dict = {"available": False, "reason": "not present in this dataset"}
-    if "Fundamentals Available" in frame.columns and not frame.empty:
-        first = frame.iloc[0]
-        as_of = first.get("Fundamentals As Of")
-        fundamentals_status = {
-            "available": bool(first.get("Fundamentals Available", False)),
-            "source_repo": first.get("Fundamentals Source"),
-            "as_of": str(pd.Timestamp(as_of).date()) if pd.notna(as_of) else None,
-            "reason": first.get("Fundamentals Reason") if pd.notna(first.get("Fundamentals Reason")) else None,
-            "covered": int(frame["PE"].notna().sum()) if "PE" in frame.columns else 0,
-        }
-
-    return {"fundamentals": fundamentals_status,
-            "breadth": universe_breadth(frame), "top_performers_3m": top_3m,
+    return {            "breadth": universe_breadth(frame), "top_performers_3m": top_3m,
             "sectors_in_focus_3m": sectors,
             "setups": [{"label": label, "rule": rule} for label, rule in SETUP_RULES],
             "universe": len(frame), "universe_name": "NIFTY 750", "source_counts": {str(k): int(v) for k, v in frame["Index"].value_counts().to_dict().items()}, "industries": sorted(frame["Industry"].dropna().astype(str).unique().tolist()), "filters": FILTERABLE, "built_at": store.built_at.isoformat() if store.built_at else None, "market_as_of": str(frame["Market As Of"].iloc[0].date()) if not frame.empty else None, "data_contract": ["adj_close", "volume"]}

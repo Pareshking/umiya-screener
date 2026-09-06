@@ -74,21 +74,6 @@ def test_the_ttl_still_catches_a_genuinely_dead_pipeline():
     assert METRICS_CACHE_TTL_HOURS <= 48
 
 
-def test_the_refresh_runs_after_the_fundamentals_upstream_publishes():
-    """The upstream publishes that evening IST; we must read it the next morning.
-
-    Observed publish times run from 10:52 to 17:42 UTC. A same-evening run
-    raced them; a next-morning run does not.
-    """
-    minute, hour, *_ = refresh_cron().split()
-    run = dt.time(int(hour), int(minute))
-    latest_observed_publish = dt.time(17, 42)
-    assert run < dt.time(6, 0), (
-        f"run at {run} is in the upstream's publishing window; it must be the "
-        f"following morning, after the latest observed push of {latest_observed_publish} UTC"
-    )
-
-
 def test_the_refresh_is_after_the_nse_close_it_reports_on():
     """07:00 IST reports on the previous session, closed at 15:30 IST."""
     minute, hour, *_ = refresh_cron().split()
