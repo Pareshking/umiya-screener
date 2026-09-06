@@ -46,8 +46,6 @@ const columns = [
   { field: "Volume Ratio", label: "Vol" },
   { field: "Max DD 12M", label: "Max DD" },
   { field: "Delivery %", label: "Dlv %" },
-  { field: "PE", label: "PE" },
-  { field: "ROE", label: "ROE" },
   { field: "Market Cap", label: "Mkt Cap" },
   { field: "Industry", label: "Industry" },
 ];
@@ -56,9 +54,8 @@ const columns = [
    source is unavailable they are hidden outright: a column of dashes reads as
    "these stocks have no PE", which is a different and wrong claim. */
 const fundamentalFields = new Set([
-  "Market Cap", "PE", "ROE", "Debt", "Book Value", "Dividend Yield",
-  "Promoter Holding %", "Public Holding %", "Delivery %", "Delivery Volume",
-  "EPS Growth Qtr %", "Sales Growth Qtr %", "NSE Sector", "Basic Industry",
+  "Market Cap", "Promoter Holding %", "Public Holding %",
+  "Delivery %", "Delivery Volume", "NSE Sector", "Basic Industry",
 ]);
 
 /* Preset screens. Each is just a named set of filters over columns that
@@ -80,7 +77,7 @@ const filterGroups = [
   { title: "Momentum", fields: ["Momentum Score", "Score Percentile", "Setup", "Rank \u03941M", "Rank \u03943M", "Acceleration", "1M Return", "3M Return", "6M Return", "9M Return", "12M Return", "3M Sharpe", "6M Sharpe", "Industry Relative"] },
   { title: "Trend", fields: ["CMP", "% From 52W High", "% EMA 50", "% EMA 100", "% EMA 200"] },
   { title: "Risk & participation", fields: ["Persistence 6M %", "Volume Ratio", "Max DD 12M", "% 200 DMA"] },
-  { title: "Fundamentals", fields: ["Market Cap", "PE", "ROE", "Debt", "Dividend Yield", "Promoter Holding %", "Delivery %", "EPS Growth Qtr %", "Sales Growth Qtr %"] },
+  { title: "Fundamentals", fields: ["Market Cap", "Promoter Holding %", "Delivery %"] },
   { title: "Data quality", fields: ["Data Age Days"] },
 ];
 const selectFields = new Set(["Index", "Industry", "Symbol", "Setup"]);

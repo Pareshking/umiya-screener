@@ -188,3 +188,52 @@ that would need a real provider.
    HTTP 200 with old numbers. If the dump's own `Date` column is more than
    `MAX_SOURCE_AGE_DAYS` (7) behind, it is treated as abandoned.
 4. **Attribution is shown** in the footer whenever the data is in use.
+
+
+### Reconciliation against an independent source (2026-09-06)
+
+Checked field by field against Screener.in for WELCORP on 2026-09-04
+(close Rs 2,590.60). Our pipeline reproduces the upstream exactly; the
+disagreement is between the upstream and reality.
+
+| Field | Upstream | Screener.in | Verdict |
+|---|---:|---:|---|
+| Close | 2,590.60 | 2,590.60 | exact |
+| Market cap | Rs 68,338 Cr | Rs 68,338 Cr | exact |
+| Promoter holding | 49.73% | 49.73% | exact |
+| P/E | 18.23 | 29.59 | **-38%** |
+| Price/Book | 4.60 | 7.46 | **-38%** |
+| Dividend yield | 0.31% | 0.19% | **+63%** |
+| ROE | 17.6% | 19.4% | -9% |
+
+**The valuation ratios are computed against a stale price.** A single
+correction factor of 1.623 carries P/E 18.23 to 29.59 and price-to-book 4.60
+to 7.47, and — dividing, because price sits in its denominator — yield 0.31 to
+0.19. One stale price numerator explains all three; a different accounting
+basis could not.
+
+The implied price of ~Rs 1,596 is confirmed independently: across seven peers
+from Screener's own comparison table, the price implied by P/E and the price
+implied by P/B agree within a few percent, and to the rupee on WELCORP (1596
+vs 1597) and APLAPOLLO (1819 vs 1819). Staleness ranged 4%-38%, tracking how
+far each stock had run.
+
+**Why that is dangerous here.** This is a momentum screener. It surfaces the
+stocks that have risen most, which are exactly the stocks whose P/E is
+understated most. WELCORP ranked #1 while showing a P/E of 18 against a real
+30 — the biggest winners look the cheapest.
+
+Separately, no pairing of Screener's quarterly results reproduces the reported
+-55% EPS or -14% sales growth, and Debt (17.0) does not reconcile with a
+debt-to-equity of 0.26.
+
+**Action taken.** P/E, price-to-book, dividend yield, ROE, debt and the
+quarterly growth figures are no longer consumed (`UNRELIABLE_FIELDS` in
+`src/fundamentals.py`). They cannot be repaired from the dump: recovering the
+stale price needs a per-share figure it does not carry. Market cap,
+shareholding, delivery and the NSE classification reconciled and are still
+served.
+
+**The fix belongs upstream.** Recomputing the ratios against the same close
+the dump already publishes would resolve it, after which re-enabling here is a
+one-line change.

@@ -143,19 +143,14 @@ export default function StockPage() {
   // source is unavailable rather than rendered as a column of dashes.
   const valuation: SpecRow[] = stock && fundamentalsOk ? [
     ["Market cap", crore(stock["Market Cap"])],
-    ["P/E", Number(stock.PE) > 0 ? num(stock.PE, 2) : "—"],
-    ["ROE", stock.ROE != null ? `${num(stock.ROE, 1)}%` : "—", stock.ROE],
-    ["Price to book", stock["Price to Book"] != null ? `${num(stock["Price to Book"], 2)}×` : "—"],
-    ["Dividend yield", stock["Dividend Yield"] != null ? `${num(stock["Dividend Yield"], 2)}%` : "—"],
-    ["Debt", stock.Debt != null ? num(stock.Debt, 2) : "—"],
   ] : [];
 
-  const growth: SpecRow[] = stock && fundamentalsOk ? [
-    ["EPS growth, latest qtr", pct(stock["EPS Growth Qtr %"], 0), stock["EPS Growth Qtr %"]],
-    ["EPS growth, 3-qtr avg", pct(stock["EPS Growth 3Q Avg %"], 0), stock["EPS Growth 3Q Avg %"]],
-    ["Sales growth, latest qtr", pct(stock["Sales Growth Qtr %"], 0), stock["Sales Growth Qtr %"]],
-    ["Sales growth, 3-qtr avg", pct(stock["Sales Growth 3Q Avg %"], 0), stock["Sales Growth 3Q Avg %"]],
-  ] : [];
+  // P/E, price-to-book, dividend yield, ROE and the quarterly growth figures
+  // are deliberately absent. The upstream computes its valuation ratios against
+  // a stale price -- see src/fundamentals.py for the reconciliation against
+  // Screener.in -- and the error is largest on exactly the risen stocks this
+  // screener ranks highest. They return when the source recomputes them.
+  const growth: SpecRow[] = [];
 
   const participation: SpecRow[] = stock ? [
     ...(fundamentalsOk ? [
@@ -320,8 +315,17 @@ export default function StockPage() {
             </div>
             {(valuation.length > 0 || growth.length > 0) && (
               <div className="sidebyside">
-                <Specs title="Valuation" note="third-party" rows={valuation} />
-                <Specs title="Growth" note="quarterly, YoY" rows={growth} />
+                    <Specs title="Size" note="third-party" rows={valuation} />
+                <div className="panel">
+                  <div className="panel-head"><span className="panel-title">Valuation ratios</span><span className="panel-note">withheld</span></div>
+                  <div style={{ padding: "12px 14px", fontSize: 12.5, color: "var(--ink-secondary)", lineHeight: 1.55 }}>
+                    P/E, price-to-book and dividend yield are not shown. The source computes them
+                    against a <strong>stale price</strong> while publishing a current close, so they
+                    understate P/E by up to 38% — and by most on the stocks that have risen most,
+                    which is precisely what this screener ranks highest. Quarterly growth and ROE
+                    do not reconcile either. They return when the source recomputes them.
+                  </div>
+                </div>
               </div>
             )}
           </div>
