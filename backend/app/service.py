@@ -187,27 +187,54 @@ def _sync_remote_metrics() -> bool:
         return False
 
 
-def _load_cache() -> tuple[pd.DataFrame, datetime] | None:
+def _read_published_metrics() -> tuple[pd.DataFrame, datetime] | None:
+    """Read whatever metrics dataset the local pointer currently names."""
     pointer = METRICS_ROOT / "LATEST.json"
-    if pointer.exists():
-        try:
-            dataset_name = json.loads(pointer.read_text(encoding="utf-8"))["dataset"]
-            dataset = METRICS_ROOT / dataset_name
-            if _validate_metric_dataset(dataset):
-                metadata = json.loads((dataset / "metadata.json").read_text(encoding="utf-8"))
-                built_at = datetime.fromisoformat(metadata["built_at_utc"])
-                return pd.read_parquet(dataset / "screener_metrics.parquet"), built_at
-        except (OSError, ValueError, ImportError, KeyError, json.JSONDecodeError):
-            pass
+    if not pointer.exists():
+        return None
+    try:
+        dataset_name = json.loads(pointer.read_text(encoding="utf-8"))["dataset"]
+        dataset = METRICS_ROOT / dataset_name
+        if not _validate_metric_dataset(dataset):
+            return None
+        metadata = json.loads((dataset / "metadata.json").read_text(encoding="utf-8"))
+        built_at = datetime.fromisoformat(metadata["built_at_utc"])
+        return pd.read_parquet(dataset / "screener_metrics.parquet"), built_at
+    except (OSError, ValueError, ImportError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def _is_fresh(built_at: datetime) -> bool:
+    return datetime.now(timezone.utc) - built_at <= timedelta(hours=METRICS_CACHE_TTL_HOURS)
+
+
+def _load_cache() -> tuple[pd.DataFrame, datetime] | None:
+    local = _read_published_metrics()
+    if local is not None and _is_fresh(local[1]):
+        return local
+
+    # The local copy is missing, unreadable, or has aged out. A scheduled build
+    # may have published a newer dataset since this process last looked, so go
+    # and check before giving up.
+    #
+    # This is the fix for a real outage. The old code returned the local
+    # dataset whenever it merely VALIDATED, without asking whether it was
+    # still fresh, and only consulted R2 when the local copy was missing or
+    # corrupt. A long-running container therefore pinned itself to an ageing
+    # dataset: once past the TTL it raised "stale" on every request and never
+    # looked at R2 again, so a perfectly good published dataset could not
+    # reach it. The service stayed down until the container happened to
+    # restart, which on a spin-down-capable host is arbitrary.
     if _sync_remote_metrics():
-        pointer = METRICS_ROOT / "LATEST.json"
-        try:
-            dataset_name = json.loads(pointer.read_text(encoding="utf-8"))["dataset"]
-            dataset = METRICS_ROOT / dataset_name
-            metadata = json.loads((dataset / "metadata.json").read_text(encoding="utf-8"))
-            return pd.read_parquet(dataset / "screener_metrics.parquet"), datetime.fromisoformat(metadata["built_at_utc"])
-        except (OSError, ValueError, ImportError, KeyError, json.JSONDecodeError):
-            pass
+        remote = _read_published_metrics()
+        if remote is not None and (local is None or remote[1] > local[1]):
+            return remote
+
+    # Nothing newer is available. Return the stale copy rather than nothing so
+    # the caller can report a real built_at instead of "unavailable".
+    if local is not None:
+        return local
+
     if not METRICS_CACHE_PATH.exists():
         return None
     modified = datetime.fromtimestamp(METRICS_CACHE_PATH.stat().st_mtime, tz=timezone.utc)

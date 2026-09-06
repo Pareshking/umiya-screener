@@ -95,3 +95,32 @@ def test_the_refresh_is_after_the_nse_close_it_reports_on():
     ist = (dt.datetime(2026, 1, 1, int(hour), int(minute), tzinfo=dt.timezone.utc)
            + dt.timedelta(hours=5, minutes=30)).time()
     assert dt.time(5, 0) <= ist <= dt.time(9, 0), f"expected an early-morning IST run, got {ist}"
+
+
+SMOKE = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "production-smoke.yml"
+
+
+def smoke_crons() -> list[str]:
+    return re.findall(r'^\s*-\s*cron:\s*"([^"]+)"', SMOKE.read_text(encoding="utf-8"), re.MULTILINE)
+
+
+def test_the_watchdog_runs_every_day_the_refresh_does():
+    """A monitor that sleeps at weekends is not a monitor.
+
+    The screener was down for hours on a Sunday with nothing reporting it,
+    because production-smoke only ran Mon-Fri.
+    """
+    crons = smoke_crons()
+    assert crons, "production-smoke has no schedule"
+    for cron in crons:
+        dow = cron.split()[4]
+        assert dow == "*", f"watchdog cron {cron!r} skips days; the refresh runs daily"
+
+
+def test_the_watchdog_checks_after_the_refresh_has_had_time_to_finish():
+    """It must observe the result of the build, not race it."""
+    refresh_hour = int(refresh_cron().split()[1])
+    hours = sorted(int(c.split()[1]) for c in smoke_crons())
+    after = [h for h in hours if h > refresh_hour]
+    assert after, f"no watchdog run after the {refresh_hour:02d}:xx refresh"
+    assert min(after) - refresh_hour >= 1, "watchdog would race the refresh"

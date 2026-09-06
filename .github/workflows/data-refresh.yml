@@ -109,13 +109,50 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import time
+          import urllib.error
           import urllib.request
 
+          # Give the running service time to notice the new pointer.
+          #
+          # This used to fire one second after the R2 upload and fail the whole
+          # refresh on the 503 it inevitably got. That turned every successful
+          # publish into a red build, which is how a genuine outage went
+          # unnoticed: the job was always red anyway. The API is also cold-start
+          # prone, so the first request can take the better part of a minute.
           base = "https://umiya-screener-api.onrender.com"
-          for path in ("/api/v1/live", "/api/v1/ready", "/api/v1/screener/metadata"):
-              with urllib.request.urlopen(base + path, timeout=30) as response:
-                  payload = json.load(response)
-                  if response.status != 200:
-                      raise SystemExit(f"{path}: unexpected HTTP {response.status}")
-                  print(path, json.dumps(payload, separators=(",", ":"))[:1000])
+          deadline = time.monotonic() + 600
+
+          def get(path):
+              with urllib.request.urlopen(base + path, timeout=120) as response:
+                  return response.status, json.load(response)
+
+          attempt = 0
+          while True:
+              attempt += 1
+              try:
+                  status, payload = get("/api/v1/ready")
+                  if status == 200 and payload.get("dataset_ready") is True:
+                      print(f"ready after {attempt} attempt(s): "
+                            f"{json.dumps(payload, separators=(',', ':'))[:400]}")
+                      break
+                  detail = f"HTTP {status}"
+              except urllib.error.HTTPError as exc:
+                  detail = f"HTTP {exc.code}"
+              except Exception as exc:                      # noqa: BLE001
+                  detail = f"{type(exc).__name__}: {exc}"
+
+              if time.monotonic() >= deadline:
+                  raise SystemExit(
+                      f"service never became ready after publication ({detail}). "
+                      "The dataset is in R2; the API is not serving it."
+                  )
+              print(f"  attempt {attempt}: {detail}; retrying")
+              time.sleep(20)
+
+          for path in ("/api/v1/live", "/api/v1/screener/metadata"):
+              status, payload = get(path)
+              if status != 200:
+                  raise SystemExit(f"{path}: unexpected HTTP {status}")
+              print(path, json.dumps(payload, separators=(",", ":"))[:600])
           PY
