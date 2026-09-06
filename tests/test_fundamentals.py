@@ -30,7 +30,7 @@ def row(code="TCS", **over):
         "Code": code, "Name": f"{code} Ltd", "ISIN": "INE467B01029",
         "Macro Economic Sector": "Information Technology", "Sector": "Information Technology",
         "Basic Industry": "Computers - Software", "Market Cap": "12400000000000",
-        "PE": "28.4", "ROE": "51.2", "Debt": "0", "Book Val": "260", "Yield": "1.8",
+        "PE": "28.4", "ROE": "51.2", "Debt": "0", "Book Val": "6.98", "Yield": "1.8",
         "Prom Hold %": "71.77", "Public Hold %": "28.23", "Delivery %": "62.5",
         "Delivery Volume": "1200000", "EPS Latest Qtr %": "7", "Sales Latest Qtr %": "5",
         "EPS Avg 3 Qtr %": "6.5", "Sales Avg 3 Qtr %": "4.2",
@@ -44,7 +44,7 @@ def test_parses_the_phpmyadmin_export_shape():
     assert source_date == date(2026, 9, 4)
     assert frame.index.name == "Symbol"
     assert frame.loc["TCS", "PE"] == 28.4
-    assert frame.loc["TCS", "Book Value"] == 260.0
+    assert frame.loc["TCS", "Price to Book"] == 6.98
     assert frame.loc["TCS", "NSE Sector"] == "Information Technology"
 
 
@@ -143,3 +143,19 @@ def test_prices_are_never_taken_from_the_third_party_source():
     forbidden = {"Open", "High", "Low", "Close", "Previouse Close", "Volume", "Adj Close"}
     assert forbidden.isdisjoint(fx.COLUMNS)
     assert forbidden.isdisjoint(fx.NUMERIC_FIELDS)
+
+
+def test_book_val_is_exposed_as_a_ratio_not_a_per_share_value():
+    """The upstream's "Book Val" is a PRICE-TO-BOOK RATIO, undocumented.
+
+    Inferred from the values, not guessed: RELIANCE 1.99, HDFCBANK 2.15,
+    SBIN 1.80, ITC 4.86 are textbook P/B figures, and the column does not scale
+    with share price the way a per-share book value must. Calling it "Book
+    value" would print "1.99" beside a Rs 1,322 share and invite exactly the
+    wrong conclusion, so the mapping is pinned here.
+    """
+    assert fx.NUMERIC_FIELDS["Book Val"] == "Price to Book"
+    assert "Book Value" not in fx.COLUMNS
+
+    frame, _ = fx.parse_dump(dump([row("RELIANCE", **{"Book Val": "1.99"})]))
+    assert frame.loc["RELIANCE", "Price to Book"] == 1.99
