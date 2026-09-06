@@ -58,12 +58,19 @@ REQUEST_TIMEOUT = 120
 
 # Only fields we cannot derive from the canonical price dataset. Anything the
 # engine already computes stays with the engine.
+# NOTE ON "Book Val": the upstream ships it undocumented, and it is a
+# PRICE-TO-BOOK RATIO, not a book value per share. Inferred from the values
+# themselves rather than guessed: RELIANCE 1.99, HDFCBANK 2.15, SBIN 1.80,
+# ITC 4.86 are textbook P/B figures, the median across 2,777 rows is 2.51, and
+# the column does not scale with share price the way a per-share book value
+# must. Labelling it "Book value" would put "1.99" next to a Rs 1,322 share and
+# invite exactly the wrong conclusion.
 NUMERIC_FIELDS: dict[str, str] = {
     "Market Cap": "Market Cap",
     "PE": "PE",
     "ROE": "ROE",
     "Debt": "Debt",
-    "Book Val": "Book Value",
+    "Book Val": "Price to Book",
     "Yield": "Dividend Yield",
     "Prom Hold %": "Promoter Holding %",
     "Public Hold %": "Public Holding %",
