@@ -5,7 +5,13 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: "0 15 * * 1-5"
+    # Every day, and twice: a watchdog that sleeps at weekends is not a
+    # watchdog. The screener was down for hours on a Sunday with nothing
+    # reporting it, because this only ran Mon-Fri. The 03:00 run is ~90 min
+    # after the data refresh, so a refresh that fails or never fires is caught
+    # the same morning rather than on Monday.
+    - cron: "0 3 * * *"
+    - cron: "0 15 * * *"
 
 permissions:
   contents: read
