@@ -56,30 +56,61 @@ MAX_SOURCE_AGE_DAYS = 7
 
 REQUEST_TIMEOUT = 120
 
-# Only fields we cannot derive from the canonical price dataset. Anything the
-# engine already computes stays with the engine.
-# NOTE ON "Book Val": the upstream ships it undocumented, and it is a
-# PRICE-TO-BOOK RATIO, not a book value per share. Inferred from the values
-# themselves rather than guessed: RELIANCE 1.99, HDFCBANK 2.15, SBIN 1.80,
-# ITC 4.86 are textbook P/B figures, the median across 2,777 rows is 2.51, and
-# the column does not scale with share price the way a per-share book value
-# must. Labelling it "Book value" would put "1.99" next to a Rs 1,322 share and
-# invite exactly the wrong conclusion.
+# WHY SEVERAL UPSTREAM FIELDS ARE NOT CONSUMED
+# --------------------------------------------
+# The upstream's valuation ratios are computed against a STALE PRICE while its
+# Close and Market Cap are current. Verified against Screener.in for WELCORP on
+# 2026-09-04, close Rs 2,590.60:
+#
+#     ratio            upstream   Screener   upstream x 1.623
+#     P/E                 18.23      29.59              29.59
+#     Price/Book           4.60       7.46               7.47
+#     Dividend yield       0.31       0.19               0.19   (divided)
+#
+# One correction factor reconciles all three, and the yield moves the opposite
+# way because price sits in its denominator. That is the signature of a single
+# stale price numerator, not a different accounting basis. The implied price of
+# ~Rs 1,596 is confirmed independently: across seven peers the price implied by
+# P/E and the price implied by P/B agree within a few percent, and to the rupee
+# on WELCORP (1596 vs 1597) and APLAPOLLO (1819 vs 1819).
+#
+# Staleness ranged from 4% to 38% across those peers, tracking how far each
+# stock had run. That is the dangerous part: THIS IS A MOMENTUM SCREENER. It
+# surfaces the stocks that have risen most, which are exactly the stocks whose
+# P/E is understated most. WELCORP ranked #1 while showing a P/E of 18 against
+# a real 30.
+#
+# The growth figures fail separately: no pairing of Screener's own quarterly
+# results reproduces the reported -55% EPS or -14% sales for WELCORP. ROE is 9%
+# out with no price term to explain it, and Debt (17.0) does not reconcile with
+# a debt-to-equity of 0.26.
+#
+# None of this can be repaired from the dump -- recovering the stale price needs
+# a per-share figure it does not carry -- so these fields are not consumed at
+# all. Displaying a number known to be wrong is worse than displaying nothing.
+# The upstream can fix it at source by recomputing the ratios against the same
+# close it already publishes; re-enabling here is then a one-line change.
+UNRELIABLE_FIELDS: dict[str, str] = {
+    "PE": "computed against a stale price; understates by up to 38%",
+    "Book Val": "same stale price as PE",
+    "Yield": "same stale price as PE, inverted",
+    "ROE": "9% out against Screener.in, with no price term to explain it",
+    "Debt": "does not reconcile with debt-to-equity",
+    "EPS Latest Qtr %": "no quarterly pairing reproduces it",
+    "Sales Latest Qtr %": "no quarterly pairing reproduces it",
+    "EPS Avg 3 Qtr %": "derived from the same unreconciled series",
+    "Sales Avg 3 Qtr %": "derived from the same unreconciled series",
+}
+
+# Fields that DID reconcile exactly against Screener.in and are safe to serve:
+# market cap, promoter and public holding. Delivery comes from NSE's own daily
+# files and carries no valuation basis that could be stale.
 NUMERIC_FIELDS: dict[str, str] = {
     "Market Cap": "Market Cap",
-    "PE": "PE",
-    "ROE": "ROE",
-    "Debt": "Debt",
-    "Book Val": "Price to Book",
-    "Yield": "Dividend Yield",
     "Prom Hold %": "Promoter Holding %",
     "Public Hold %": "Public Holding %",
     "Delivery %": "Delivery %",
     "Delivery Volume": "Delivery Volume",
-    "EPS Latest Qtr %": "EPS Growth Qtr %",
-    "Sales Latest Qtr %": "Sales Growth Qtr %",
-    "EPS Avg 3 Qtr %": "EPS Growth 3Q Avg %",
-    "Sales Avg 3 Qtr %": "Sales Growth 3Q Avg %",
 }
 
 TEXT_FIELDS: dict[str, str] = {
