@@ -5,6 +5,7 @@ import io
 import json
 import os
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -183,6 +184,35 @@ def warm_price_dataset() -> None:
     arriving before the warm-up finishes simply waits on the same lock.
     """
     threading.Thread(target=_warm_price_dataset_now, name="warm-price-dataset", daemon=True).start()
+
+
+DATASET_POLL_SECONDS = 120
+
+
+def _poll_for_newer_dataset() -> None:
+    while True:
+        time.sleep(DATASET_POLL_SECONDS)
+        try:
+            store.adopt_newer_published_dataset()
+        except Exception:                                   # noqa: BLE001
+            # Never let a transient object-store failure kill the poller: it
+            # would stop silently and the symptom would be a site that quietly
+            # stops updating, which is the exact bug this thread exists to fix.
+            pass
+
+
+@app.on_event("startup")
+def poll_for_newer_dataset() -> None:
+    """Notice a dataset published after this process started.
+
+    Nothing pushed a new dataset to a running container. Startup hydrated one
+    and the TTL only governed when to stop serving it, so a container that
+    stayed up served the dataset it happened to load -- for up to 36 hours --
+    while the daily build published fresher numbers into R2 that nothing ever
+    read. The user asked for daily updates "like stock price"; this is what
+    makes the published build actually arrive.
+    """
+    threading.Thread(target=_poll_for_newer_dataset, name="poll-dataset", daemon=True).start()
 
 
 @app.get("/api/v1/live")

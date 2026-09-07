@@ -120,3 +120,94 @@ def test_a_missing_local_dataset_still_syncs(metrics_root, monkeypatch):
     monkeypatch.setattr(service, "_sync_remote_metrics", fake_sync)
     result = service._load_cache()
     assert result is not None and result[1] == fresh_at
+
+
+# --------------------------------------------------------------------------
+# Freshness is not currency.
+#
+# The recovery above only engages once the local copy has aged PAST the TTL.
+# While it is merely fresh, both _load_cache and ScreenerStore keep serving it
+# and neither asks whether something newer exists -- so a container that stays
+# up serves whatever it loaded for up to the full 36h TTL while the daily build
+# publishes into R2 unread. Seen in production on 2026-09-07: the refresh built,
+# published and reported success at 03:06 UTC; the API served the previous day's
+# 14:12 build regardless.
+# --------------------------------------------------------------------------
+
+
+def loaded_store(metrics_root, built_at):
+    store = service.ScreenerStore()
+    write_dataset(metrics_root, "dataset_loaded", built_at)
+    store.get()
+    assert store.built_at == built_at
+    return store
+
+
+def test_a_running_store_adopts_a_dataset_published_after_it_loaded(metrics_root, monkeypatch):
+    """The bug: a fresh-but-superseded frame is served indefinitely."""
+    loaded_at = datetime.now(timezone.utc) - timedelta(hours=13)
+    store = loaded_store(metrics_root, loaded_at)
+
+    published_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    monkeypatch.setattr(
+        service, "_sync_remote_metrics",
+        lambda: bool(write_dataset(metrics_root, "dataset_published", published_at)) or True,
+    )
+
+    assert store.adopt_newer_published_dataset() is True
+    assert store.built_at == published_at, "the newly published build must be adopted"
+    assert store.get() is not None
+
+
+def test_adopting_never_moves_backwards(metrics_root, monkeypatch):
+    """An older pointer -- a rollback, a half-written publish -- must not win."""
+    loaded_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    store = loaded_store(metrics_root, loaded_at)
+
+    older = loaded_at - timedelta(hours=6)
+    monkeypatch.setattr(
+        service, "_sync_remote_metrics",
+        lambda: bool(write_dataset(metrics_root, "dataset_older", older)) or True,
+    )
+
+    assert store.adopt_newer_published_dataset() is False
+    assert store.built_at == loaded_at
+
+
+def test_a_failed_sync_leaves_the_served_dataset_alone(metrics_root, monkeypatch):
+    """R2 being unreachable must not blank the site."""
+    loaded_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    store = loaded_store(metrics_root, loaded_at)
+    monkeypatch.setattr(service, "_sync_remote_metrics", lambda: False)
+
+    assert store.adopt_newer_published_dataset() is False
+    assert store.built_at == loaded_at
+    assert not store.get().empty
+
+
+def test_the_poll_is_rate_limited_so_readers_do_not_hammer_r2(metrics_root, monkeypatch):
+    loaded_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    store = loaded_store(metrics_root, loaded_at)
+    calls = {"n": 0}
+
+    def counting_sync():
+        calls["n"] += 1
+        return False
+
+    monkeypatch.setattr(service, "_sync_remote_metrics", counting_sync)
+    for _ in range(5):
+        store.adopt_newer_published_dataset()
+    assert calls["n"] == 1, "repeated polls inside the interval must not re-hit the store"
+
+
+def test_the_poll_interval_fits_inside_the_post_publish_smoke_deadline():
+    """The refresh now fails if production has not adopted the published build
+    within its deadline, so the poll must be able to happen well before it."""
+    workflow = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / ".github" / "workflows" / "data-refresh.yml"
+    ).read_text(encoding="utf-8")
+    deadline = int(__import__("re").search(r"deadline = time\.monotonic\(\) \+ (\d+)", workflow).group(1))
+    assert service.REMOTE_POLL_INTERVAL.total_seconds() * 2 <= deadline, (
+        "a container could not notice the new dataset before the smoke check gives up"
+    )

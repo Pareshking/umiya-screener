@@ -155,12 +155,39 @@ jobs:
 
       - name: Smoke production readiness after publication
         shell: bash
+        env:
+          METRICS_PATH: ${{ steps.datasets.outputs.metrics_path }}
         run: |
           python - <<'PY'
           import json
+          import os
+          import pathlib
           import time
           import urllib.error
           import urllib.request
+
+          # WAIT FOR THE PUBLISHED BUILD, NOT MERELY FOR "A" BUILD.
+          #
+          # This asserted only dataset_ready, which stays true while the API
+          # serves an OLDER dataset -- so it could not detect the very failure
+          # it was added to catch. On 2026-09-07 it passed while production
+          # went on serving the previous day's build, and the refresh was green
+          # for it. Comparing against the built_at we just published is what
+          # makes this check mean "the new numbers are live".
+          import datetime as _dt
+
+          def _parse(value: str) -> _dt.datetime:
+              parsed = _dt.datetime.fromisoformat(value)
+              if parsed.tzinfo is None:
+                  parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+              return parsed
+
+          published_at = _parse(
+              json.loads(
+                  (pathlib.Path(os.environ["METRICS_PATH"]) / "metadata.json").read_text()
+              )["built_at_utc"]
+          )
+          print(f"published build: {published_at.isoformat()}")
 
           # Give the running service time to notice the new pointer.
           #
@@ -182,10 +209,15 @@ jobs:
               try:
                   status, payload = get("/api/v1/ready")
                   if status == 200 and payload.get("dataset_ready") is True:
-                      print(f"ready after {attempt} attempt(s): "
-                            f"{json.dumps(payload, separators=(',', ':'))[:400]}")
-                      break
-                  detail = f"HTTP {status}"
+                      serving = payload.get("built_at")
+                      if serving and _parse(serving) >= published_at:
+                          print(f"serving the published build after {attempt} attempt(s): "
+                                f"{json.dumps(payload, separators=(',', ':'))[:400]}")
+                          break
+                      detail = (f"ready but still serving {serving}, "
+                                f"published {published_at.isoformat()}")
+                  else:
+                      detail = f"HTTP {status}"
               except urllib.error.HTTPError as exc:
                   detail = f"HTTP {exc.code}"
               except Exception as exc:                      # noqa: BLE001

@@ -226,11 +226,55 @@ def _load_cache() -> tuple[pd.DataFrame, datetime] | None:
         return None
 
 
+# How often a running process may ask R2 whether a newer dataset exists. Must
+# stay well under the refresh workflow's post-publish smoke deadline, since that
+# check now waits for production to actually adopt what was just published.
+REMOTE_POLL_INTERVAL = timedelta(minutes=2)
+
+
 class ScreenerStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._frame: pd.DataFrame | None = None
         self._built_at: datetime | None = None
+        self._last_remote_poll: datetime | None = None
+
+    def adopt_newer_published_dataset(self) -> bool:
+        """Pick up a dataset published since this process loaded its copy.
+
+        Freshness and currency are not the same question, and the code only
+        asked the first one. _load_cache consults R2 when the local copy has
+        aged out; ScreenerStore serves its in-memory frame while that frame is
+        within the TTL. Both are correct about staleness and both are silent
+        about a newer dataset existing, so a long-running container kept
+        serving whatever it loaded for up to the full 36h TTL while the morning
+        build sat in R2 unread. Observed in production on 2026-09-07: the
+        refresh built, published and reported success at 03:06 UTC, and the API
+        went on serving the previous day's 14:12 build.
+
+        Returns True when the in-memory frame was replaced by a newer one.
+        """
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            if (self._last_remote_poll is not None
+                    and now - self._last_remote_poll < REMOTE_POLL_INTERVAL):
+                return False
+            self._last_remote_poll = now
+
+        # Network I/O deliberately outside the lock: readers must not queue
+        # behind a download.
+        if not _sync_remote_metrics():
+            return False
+        published = _read_published_metrics()
+        if published is None:
+            return False
+        frame, built_at = published
+
+        with self._lock:
+            if self._built_at is not None and built_at <= self._built_at:
+                return False
+            self._frame, self._built_at = frame, built_at
+        return True
 
     def get(self) -> pd.DataFrame:
         if self._frame is not None and self._built_at is not None:
