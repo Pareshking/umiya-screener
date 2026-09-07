@@ -87,3 +87,42 @@ def test_dataset_reads_are_cacheable_but_probes_are_not():
         if metadata.status_code == 200:
             assert metadata.headers["cache-control"] == main.DATASET_CACHE_CONTROL
             assert "max-age" in metadata.headers["cache-control"]
+
+
+# A correct adopt_newer_published_dataset that nothing ever calls would leave
+# production exactly as broken as it was, so pin the wiring, not just the method.
+
+
+def test_a_startup_hook_polls_for_newly_published_datasets():
+    hooks = [h.__name__ for h in main.app.router.on_startup]
+    assert "poll_for_newer_dataset" in hooks, (
+        "nothing would ever notice a dataset published after the process started"
+    )
+
+
+def test_the_poller_actually_asks_the_store_to_adopt(monkeypatch):
+    calls = threading.Event()
+    monkeypatch.setattr(main, "DATASET_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(
+        main.store, "adopt_newer_published_dataset",
+        lambda: (calls.set(), False)[1],
+    )
+    main.poll_for_newer_dataset()
+    assert calls.wait(timeout=5), "the poll thread never consulted the store"
+
+
+def test_the_poller_survives_an_object_store_failure(monkeypatch):
+    """A thread that dies on one bad response stops updating the site silently."""
+    attempts = []
+    done = threading.Event()
+
+    def flaky():
+        attempts.append(1)
+        if len(attempts) >= 3:
+            done.set()
+        raise RuntimeError("R2 unreachable")
+
+    monkeypatch.setattr(main, "DATASET_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(main.store, "adopt_newer_published_dataset", flaky)
+    main.poll_for_newer_dataset()
+    assert done.wait(timeout=5), "the poll thread died on the first failure"
