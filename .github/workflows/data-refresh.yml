@@ -13,6 +13,15 @@ on:
     # day with a fresh built_at, which is what keeps the dataset servable.
     # tests/test_refresh_schedule.py pins both properties.
     - cron: "30 1 * * *"
+    # 04:30 UTC = 10:00 IST. A retry, not a second report.
+    #
+    # GitHub drops scheduled runs under load and documents that it may. This
+    # repository has actually seen it: the 01:30 slot was missed on 5 and 7
+    # September 2026 and ran 5h late on the 6th, and the 15:00 watchdog slot
+    # ran 2.5h late. One cron is therefore not a schedule, it is a hope. The
+    # retry skips itself when the primary run already published today, so on a
+    # normal day this costs nothing and pulls nothing extra from the upstream.
+    - cron: "30 4 * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +32,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  decide:
+    # Is a build actually needed, or did an earlier slot already publish today?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.check.outputs.needed }}
+    steps:
+      - name: Check whether today already has a published dataset
+        id: check
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import datetime as dt
+          import json
+          import os
+          import urllib.request
+
+          # A manual dispatch always builds: someone asked for it on purpose.
+          if os.environ.get("EVENT_NAME") != "schedule":
+              print("needed=true")
+              raise SystemExit(0)
+
+          # Fail open. If we cannot tell what production is serving, build --
+          # a wasted build costs three minutes, a skipped one costs a day.
+          try:
+              with urllib.request.urlopen(
+                  "https://umiya-screener-api.onrender.com/api/v1/ready", timeout=120
+              ) as response:
+                  payload = json.load(response)
+              built_at = dt.datetime.fromisoformat(payload["built_at"])
+              today = dt.datetime.now(dt.timezone.utc).date()
+              fresh = built_at.astimezone(dt.timezone.utc).date() == today
+          except Exception:                                 # noqa: BLE001
+              print("needed=true")
+              raise SystemExit(0)
+
+          print("needed=false" if fresh else "needed=true")
+          PY
+
   refresh:
+    needs: decide
+    if: needs.decide.outputs.needed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
