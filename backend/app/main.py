@@ -160,6 +160,74 @@ def _load_chart_frame(dataset: Path, symbol: str) -> pd.DataFrame:
     return chart
 
 
+def adopt_newer_price_dataset() -> bool:
+    """Follow the price pointer the way the metrics store follows its own.
+
+    _ensure_price_dataset returns the local copy the moment it validates and
+    only consults R2 when it is missing or corrupt, so a running container kept
+    charting whatever it downloaded at startup. On 2026-09-08 the screener was
+    corrected to Tuesday's settled close while the chart pane went on drawing
+    the midday bar -- 4.0M shares against the real 9.8M -- because that came
+    from the price dataset instead.
+
+    The 37MB download happens outside _PRICE_DATASET_LOCK so chart requests are
+    not blocked for its duration; only the swap and the pointer write are held.
+    """
+    import shutil
+
+    try:
+        remote = ObjectStoreConfig.from_env()
+        prefix = read_pointer(remote, "pointers/latest-price-dataset.json")
+    except Exception:                                       # noqa: BLE001
+        return False
+    dataset_name = prefix.rstrip("/").split("/")[-1]
+
+    pointer = PRICE_ROOT / "LATEST.json"
+    try:
+        if pointer.exists() and json.loads(pointer.read_text(encoding="utf-8"))["dataset"] == dataset_name:
+            return False
+    except (OSError, KeyError, json.JSONDecodeError):
+        pass
+
+    target = PRICE_ROOT / dataset_name
+    if _read_price_dataset(target) is None:
+        tmp = PRICE_ROOT / f".{dataset_name}.tmp"
+        shutil.rmtree(tmp, ignore_errors=True)
+        try:
+            download_prefix(remote, prefix, tmp)
+        except Exception:                                   # noqa: BLE001
+            shutil.rmtree(tmp, ignore_errors=True)
+            return False
+        if _read_price_dataset(tmp) is None:
+            shutil.rmtree(tmp, ignore_errors=True)
+            return False
+        with _PRICE_DATASET_LOCK:
+            shutil.rmtree(target, ignore_errors=True)
+            tmp.replace(target)
+
+    with _PRICE_DATASET_LOCK:
+        pointer_tmp = PRICE_ROOT / "LATEST.tmp.json"
+        pointer_tmp.write_text(json.dumps({"dataset": dataset_name}), encoding="utf-8")
+        pointer_tmp.replace(pointer)
+
+    _prune_superseded_price_datasets(keep=dataset_name)
+    return True
+
+
+def _prune_superseded_price_datasets(keep: str) -> None:
+    """Each dataset is ~37MB and the container's disk is small and ephemeral.
+
+    Adopting a new one daily without removing the old would fill the disk, and
+    a full disk fails writes while the site is otherwise healthy -- a slow,
+    confusing outage.
+    """
+    import shutil
+
+    for path in PRICE_ROOT.glob("dataset_*"):
+        if path.name != keep and path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+
+
 def _warm_price_dataset_now() -> None:
     # Failure is non-fatal; the chart endpoint retries lazily if the object store
     # is temporarily unavailable.
@@ -192,13 +260,18 @@ DATASET_POLL_SECONDS = 120
 def _poll_for_newer_dataset() -> None:
     while True:
         time.sleep(DATASET_POLL_SECONDS)
-        try:
-            store.adopt_newer_published_dataset()
-        except Exception:                                   # noqa: BLE001
-            # Never let a transient object-store failure kill the poller: it
-            # would stop silently and the symptom would be a site that quietly
-            # stops updating, which is the exact bug this thread exists to fix.
-            pass
+        # Independently, so a failure updating one dataset cannot stop the
+        # other: the screener and the charts read different files, and half a
+        # site updating is harder to notice than none of it.
+        for adopt in (store.adopt_newer_published_dataset, adopt_newer_price_dataset):
+            try:
+                adopt()
+            except Exception:                               # noqa: BLE001
+                # Never let a transient object-store failure kill the poller: it
+                # would stop silently and the symptom would be a site that
+                # quietly stops updating, which is the bug this thread exists
+                # to fix.
+                pass
 
 
 @app.on_event("startup")
