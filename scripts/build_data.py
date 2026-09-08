@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.config import BENCHMARK, MIN_HISTORY, MAX_DATA_AGE_DAYS
-from src.data import HISTORY_YEARS, PRICE_FIELDS, eligible_symbols, fetch_benchmark, fetch_prices, latest_market_date, load_universe
+from src.data import HISTORY_YEARS, PRICE_FIELDS, drop_unsettled_sessions, eligible_symbols, fetch_benchmark, fetch_prices, last_settled_session, latest_market_date, load_universe
 
 OUTPUT_ROOT = ROOT / "data_cache" / "price_history"
 MIN_UNIVERSE = 600
@@ -32,6 +32,17 @@ def build() -> tuple[Path, dict]:
     if adj_close.empty or volume.empty:
         raise RuntimeError("Yahoo returned an empty canonical dataset")
 
+    # Never publish a session that is still trading. See drop_unsettled_sessions.
+    settled_through = last_settled_session()
+    before = len(adj_close)
+    adj_close = drop_unsettled_sessions(adj_close)
+    volume = drop_unsettled_sessions(volume)
+    if len(adj_close) < before:
+        print(f"Dropped {before - len(adj_close)} unsettled session(s); "
+              f"newest settled session is {settled_through.date()}")
+    if adj_close.empty or volume.empty:
+        raise RuntimeError("No settled sessions remain after discarding the session in progress")
+
     # The benchmark drives relative strength on the stock page. A failure here
     # must not sink the whole dataset: RS is one panel, the screener is the app.
     try:
@@ -39,6 +50,8 @@ def build() -> tuple[Path, dict]:
     except Exception as exc:  # pragma: no cover - network dependent
         print(f"WARNING: benchmark unavailable, relative strength will be omitted: {exc}")
         benchmark = None
+    if benchmark is not None:
+        benchmark = drop_unsettled_sessions(benchmark)
 
     as_of = latest_market_date(adj_close)
     eligibility = eligible_symbols(adj_close, volume=volume, as_of=as_of)

@@ -106,14 +106,34 @@ def test_the_refresh_is_after_the_nse_close_it_reports_on():
     assert dt.time(5, 0) <= ist <= dt.time(9, 0), f"expected an early-morning IST run, got {ist}"
 
 
-def test_every_slot_reads_a_settled_session():
-    """A retry must still land before today's close, or it reports on a
-    half-finished session instead of yesterday's settled one."""
-    for cron in refresh_crons():
-        ist = _ist(cron)
-        assert dt.time(5, 0) <= ist <= dt.time(15, 0), (
-            f"refresh cron {cron!r} runs at {ist} IST, too close to the 15:30 close"
-        )
+def test_settlement_is_enforced_by_the_pipeline_not_by_the_cron():
+    """I first wrote this as a window check on the cron times, allowing
+    anything up to 15:00 IST on the reasoning that it beat the 15:30 close.
+    The boundary that matters is the 09:15 OPEN, not the close: the retry slot
+    at 10:00 IST sits inside the session, and on 2026-09-08 GitHub fired it at
+    11:59 IST and the build published a partial bar as that day's close.
+
+    A cron cannot carry this invariant, because GitHub does not honour cron
+    times. The build drops unsettled sessions itself; this test pins that the
+    responsibility lives there.
+    """
+    from src import data
+
+    assert hasattr(data, "drop_unsettled_sessions"), (
+        "nothing stops a late run publishing the session in progress"
+    )
+    source = (
+        Path(__file__).resolve().parents[1] / "scripts" / "build_data.py"
+    ).read_text(encoding="utf-8")
+    assert "drop_unsettled_sessions" in source, "the build does not apply the guard"
+
+
+def test_the_primary_slot_runs_before_the_market_opens():
+    """When GitHub is punctual, the report should be of a market at rest."""
+    ist = _ist(refresh_cron())
+    assert ist <= dt.time(9, 15), (
+        f"the primary refresh runs at {ist} IST, after the 09:15 open"
+    )
 
 
 def test_the_schedule_does_not_depend_on_a_single_cron_firing():
