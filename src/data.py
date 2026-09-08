@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import io
 import time
 from math import ceil
@@ -27,6 +28,45 @@ from .config import (
 
 PRICE_FIELDS = ("adj_close", "volume")
 HISTORY_YEARS = 10
+
+IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
+NSE_CLOSE_IST = dt.time(15, 30)
+# The closing print is not final the instant the bell rings, and the provider
+# needs a moment to publish it. An hour is generous and costs nothing: the
+# refresh runs the following morning either way.
+SETTLEMENT_BUFFER = dt.timedelta(minutes=60)
+
+
+def last_settled_session(now: dt.datetime | None = None) -> pd.Timestamp:
+    """The most recent date whose NSE session has closed and settled."""
+    now_ist = (now or dt.datetime.now(dt.timezone.utc)).astimezone(IST)
+    settled_at = dt.datetime.combine(now_ist.date(), NSE_CLOSE_IST, tzinfo=IST) + SETTLEMENT_BUFFER
+    today = now_ist.date() if now_ist >= settled_at else now_ist.date() - dt.timedelta(days=1)
+    return pd.Timestamp(today)
+
+
+def drop_unsettled_sessions(frame, now: dt.datetime | None = None):
+    """Discard trailing rows for a session that has not finished trading.
+
+    Yahoo returns a partial bar for the session in progress: the "close" is
+    whatever the price happens to be at that moment and the volume is whatever
+    has traded so far. Published as if it were a close, that misstates CMP,
+    distance from the 52-week high and the EMAs, and it makes the volume ratio
+    nonsense -- a third of a day's volume against a full-day average reads as a
+    collapse in participation.
+
+    Observed on 2026-09-08: GitHub fired the 04:30 UTC schedule at 06:27 UTC
+    and the build published RELIANCE at 4.0M shares against a 10-13M daily
+    norm, because the session was two and a half hours old. Cron placement
+    cannot prevent this -- GitHub's scheduled runs arrive hours late, which is
+    documented and routinely observed here -- so the pipeline refuses the
+    partial bar instead of relying on the clock.
+    """
+    if frame is None or len(frame) == 0:
+        return frame
+    cutoff = last_settled_session(now)
+    index = pd.to_datetime(frame.index).normalize()
+    return frame.loc[index <= cutoff]
 
 
 def _download_nse_csv(url: str) -> bytes:
